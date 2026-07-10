@@ -20,6 +20,10 @@ description: Administer a cloudflare-email service with the admin key. Use when 
 1. **服务地址 base**:例如 `https://mail.example.com`(不带 `/mcp`)。
 2. **管理员密钥**:服务的 `MCP_TOKEN`。**这是最高权限凭证,绝不能交给普通用户、不要泄露。**
 
+## 运行位置(重要)
+
+下面所有命令都写成相对路径(`scripts/admin.mjs`),必须在**本技能目录**(这份 `SKILL.md` 所在的目录,如 `.claude/skills/email-admin/`)下执行才能找到脚本。执行前先 `cd` 到这个目录;如果不确定当前目录,用 `SKILL.md` 自己的路径推出技能目录再 `cd` 进去,或者直接把命令里的 `scripts/admin.mjs` 换成它的绝对路径。
+
 ## 第一步:设置接入点(一次性)
 
 ```bash

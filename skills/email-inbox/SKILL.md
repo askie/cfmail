@@ -21,6 +21,10 @@ description: Fetch the latest unread emails from a cloudflare-email mailbox usin
 
 > 关于「未读」：服务端不记录已读/未读状态。本技能在**本机**用一个游标（cursor）记住「已经看过的最新一封邮件的时间」，每次只返回比游标更新的邮件，然后推进游标。已读状态是每台机器各自的。
 
+## 运行位置（重要）
+
+下面所有命令都写成相对路径（`scripts/setup.mjs`、`scripts/fetch-unread.mjs`），必须在**本技能目录**（这份 `SKILL.md` 所在的目录，如 `.claude/skills/email-inbox/`）下执行才能找到脚本。执行前先 `cd` 到这个目录；如果不确定当前目录，用 `SKILL.md` 自己的路径推出技能目录再 `cd` 进去，或者直接把命令里的脚本路径换成绝对路径。
+
 ## 第一步：设置接入点（一次性）
 
 用三个要素配置并**当场验证连通性**：
