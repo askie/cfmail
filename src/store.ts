@@ -314,7 +314,7 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
 // We store only the SHA-256 hash of a key, never the plaintext. The plaintext is
 // returned to the admin exactly once at creation time and is unrecoverable after.
 export async function createApiKey(env: Env, email: string): Promise<string> {
-  const key = "sk-" + crypto.randomUUID().replace(/-/g, "");
+  const key = crypto.randomUUID().replace(/-/g, "");
   const created_at = Date.now();
   const hash = await sha256Hex(key);
   await env.DB.prepare(

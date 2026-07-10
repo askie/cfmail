@@ -13,7 +13,7 @@
 //
 // Config & cursor live in one JSON file (see resolveConfigPath):
 //   { "base": "https://mail.example.com", "email": "you@example.com",
-//     "key": "sk-...", "cursor": 0 }
+//     "key": "<你的Key>", "cursor": 0 }
 //
 // Usage:
 //   node fetch-unread.mjs                # list new unread, advance cursor

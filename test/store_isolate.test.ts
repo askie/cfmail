@@ -139,7 +139,7 @@ test("createApiKey returns plaintext but persists only its SHA-256 hash", async 
   } as any;
 
   const key = await createApiKey(env, "u@e.com");
-  expect(key.startsWith("sk-")).toBe(true);
+  expect(key).toMatch(/^[0-9a-f]{32}$/);
   expect(bound[0]).not.toBe(key); // not stored in plaintext
   expect(bound[0]).toBe(await sha256Hex(key)); // stored as hash
   expect(bound[1]).toBe("u@e.com");

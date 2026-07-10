@@ -44,10 +44,10 @@ node scripts/admin.mjs setup --base <服务地址> --key <管理员MCP_TOKEN>
 ## 开通邮箱的完整流程
 
 1. 管理员执行:`node scripts/admin.mjs create-key --email alice@你的域名`
-2. 命令打印一把 `sk-...` 的 Key(**只此一次**)。把它安全地交给 Alice。
+2. 命令打印一把明文 Key(**只此一次**)。把它安全地交给 Alice。
 3. Alice 在自己的 Agent 里用 **email-inbox** 技能配置这把 Key,就能收发到 `alice@你的域名` 的邮件了:
    ```bash
-   node setup.mjs --base <服务地址> --email alice@你的域名 --key sk-...
+   node setup.mjs --base <服务地址> --email alice@你的域名 --key <你的Key>
    ```
 
 > 一个邮箱地址同时只持有一把有效 Key:对同一地址再次 `create-key` 会签发新 Key 并使旧 Key 失效(等于重置密钥)。
