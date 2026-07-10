@@ -171,7 +171,7 @@ cp -r skills/email-admin  你的项目/.claude/skills/
 cd .claude/skills/email-admin
 # 一次性配置：服务地址 + 管理员密钥（部署时设置的 MCP_TOKEN）
 node scripts/admin.mjs setup --base https://你的子域名 --key <管理员MCP_TOKEN>
-# 给某个地址开通邮箱，命令会打印一把 sk-... 的 Key（只显示一次）
+# 给某个地址开通邮箱，命令会打印一把明文 Key（只显示一次）
 node scripts/admin.mjs create-key --email alice@你的域名
 ```
 
@@ -182,7 +182,7 @@ node scripts/admin.mjs create-key --email alice@你的域名
 ```bash
 cd .claude/skills/email-inbox
 # 一次性配置：服务地址 + 自己的邮箱 + 上一步拿到的 Key
-node scripts/setup.mjs --base https://你的子域名 --email alice@你的域名 --key sk-...
+node scripts/setup.mjs --base https://你的子域名 --email alice@你的域名 --key <你的Key>
 # 收取最新未读邮件（首次给最近的存量，之后只给新到的）
 node scripts/fetch-unread.mjs
 ```
@@ -197,7 +197,7 @@ node scripts/fetch-unread.mjs
 - 可用环境变量覆盖文件，便于多账号或脚本化：`EMAIL_INBOX_BASE` / `EMAIL_INBOX_EMAIL` / `EMAIL_INBOX_KEY` / `EMAIL_INBOX_CONFIG`（管理端同理 `EMAIL_ADMIN_*`）。
 - 「未读」由本机游标记录（服务端不分已读/未读）：`fetch-unread.mjs --peek` 只看不标记、`--all` 看最近全部、`--reset` 全部标为已读、`--json` 机器可读输出。
 
-> 安全：`email-admin` 用的是最高权限的管理员密钥，**只配在管理员自己机器上，绝不要交给普通用户**；普通用户只该拿到 `email-inbox` 用的、绑定到自己邮箱的 `sk-...` Key。
+> 安全：`email-admin` 用的是最高权限的管理员密钥，**只配在管理员自己机器上，绝不要交给普通用户**；普通用户只该拿到 `email-inbox` 用的、绑定到自己邮箱的 Key。
 
 ---
 

@@ -17,7 +17,7 @@ description: Fetch the latest unread emails from a cloudflare-email mailbox usin
 
 1. **服务地址 base**：例如 `https://mail.example.com`（cloudflare-email 服务的根地址，不带 `/mcp`）。
 2. **邮箱地址 email**：这个 Key 绑定的收件地址，例如 `you@example.com`（仅用于显示，权限由 Key 决定）。
-3. **API Key**：形如 `sk-...`，由该服务的管理员用 `create_api_key` 生成并交给你。**它是凭证，不要泄露。**
+3. **API Key**：形如一串32位十六进制字符，由该服务的管理员用 `create_api_key` 生成并交给你。**它是凭证，不要泄露。**
 
 > 关于「未读」：服务端不记录已读/未读状态。本技能在**本机**用一个游标（cursor）记住「已经看过的最新一封邮件的时间」，每次只返回比游标更新的邮件，然后推进游标。已读状态是每台机器各自的。
 

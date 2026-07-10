@@ -4,7 +4,7 @@
 // service, so a green check means you're ready to fetch mail.
 //
 // Usage:
-//   node setup.mjs --base https://mail.example.com --email you@example.com --key sk-xxx
+//   node setup.mjs --base https://mail.example.com --email you@example.com --key <你的Key>
 //
 // Writes to EMAIL_INBOX_CONFIG, else $XDG_CONFIG_HOME/email-inbox/config.json,
 // else ~/.config/email-inbox/config.json. Re-running overwrites the connection
@@ -35,7 +35,7 @@ function parseArgs(argv) {
     else if (k === "--email") a.email = argv[++i];
     else if (k === "--key") a.key = argv[++i];
     else if (k === "--help" || k === "-h") {
-      process.stdout.write("Usage: node setup.mjs --base <url> --email <addr> --key <sk-...>\n");
+      process.stdout.write("Usage: node setup.mjs --base <url> --email <addr> --key <你的Key>\n");
       process.exit(0);
     } else fail(`unknown argument: ${k}`);
   }
@@ -92,7 +92,7 @@ async function main() {
   const email = args.email || prev.email || "";
   const key = args.key || prev.key || "";
   if (!base) fail("missing --base (the service URL, e.g. https://mail.example.com)");
-  if (!key) fail("missing --key (your API key, e.g. sk-...)");
+  if (!key) fail("missing --key (your API key, e.g. 32位十六进制字符串)");
 
   process.stdout.write(`Verifying connection to ${base} ...\n`);
   const stats = await verify(base, key);
