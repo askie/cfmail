@@ -55,22 +55,27 @@ node scripts/fetch-unread.mjs
 | `node scripts/fetch-unread.mjs --reset` | 把当前所有邮件标记为已读 |
 | `node scripts/fetch-unread.mjs --json` | 机器可读输出（便于程序处理） |
 
-## 读全文与附件
+## 读全文、搜索与附件
 
-`fetch-unread` 只返回摘要和每封邮件的 `id`。要读全文或取附件，直接调用该服务的 MCP 工具（这些工具同样受你的 Key 限定在你的邮箱内）：
+`fetch-unread` 默认**不下载正文**，只返回摘要（发件人/主题/日期/纯文本 snippet）和每封邮件的 `id`。要看正文、搜全文或存附件，用下面几个脚本（同样受你的 Key 限定在你的邮箱内，不需要额外配置）：
 
-- `get_email(id, include_html?)` —— 读某封邮件的完整正文与附件清单。
-- `get_attachment(attachment_id)` —— 取某个附件的字节（base64）。
-- `search_emails(query, limit?)` —— 全文搜索（支持中文）。
-- `list_emails(...)` —— 按发件人/时间等筛选。
+```bash
+node scripts/get-email.mjs <id>                    # 读正文（纯文本）
+node scripts/get-email.mjs <id> --html              # 同时取 HTML 正文（默认不取）
+node scripts/get-email.mjs <id> --json               # 机器可读，含 attachments 列表
+node scripts/search-emails.mjs "<关键字>"             # 全文搜索（支持中文）
+node scripts/get-attachment.mjs <attachment_id> --out ./file.pdf   # 下载附件
+```
 
-如果你的 Agent 已把这个 cloudflare-email 服务注册为 MCP 服务器，直接用上面这些工具即可；否则用 `fetch-unread.mjs --json` 配合 `id` 也能驱动后续查询脚本。
+`get-email.mjs` 会在输出末尾列出附件的 `id`，拿着它去 `get-attachment.mjs` 下载即可。
+
+> 如果你的 Agent 已经把这个 cloudflare-email 服务注册为 MCP 服务器，也可以直接调用 `get_email` / `get_attachment` / `search_emails` / `list_emails` 这些工具，效果等价；上面几个脚本是给**没有**注册 MCP 服务器的场景用的。
 
 ## 给 Agent 的执行提示
 
 1. 用户首次提到「查邮件」而本机还没有配置文件（`config.json` 不存在）时，先问齐 base / email / key 三个要素，跑 `setup.mjs`。
 2. 之后每次「看有没有新邮件」直接跑 `fetch-unread.mjs`，把结果用自然语言转述给用户。
-3. 用户说「这封打开看看 / 把附件下载下来」时，用邮件 `id` 调 `get_email` / `get_attachment`。
+3. 用户说「这封打开看看」时，用邮件 `id` 跑 `get-email.mjs <id>`（要 HTML 加 `--html`）；说「把附件下载下来」时先 `get-email.mjs <id> --json` 拿附件 `id`，再跑 `get-attachment.mjs`；说「搜一下 xxx」时跑 `search-emails.mjs "xxx"`。
 4. 报错 401 表示 Key 失效或填错，提示用户重新设置；连接错误则检查 base 地址是否可达。
 
 ## 故障排查
