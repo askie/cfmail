@@ -13,7 +13,7 @@ import {
   deleteApiKey,
 } from "./store";
 import { getWebhook, setWebhook } from "./config";
-import { sendEmail } from "./send";
+import { sendEmail, resolveSender } from "./send";
 
 function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -110,7 +110,7 @@ export class EmailMCP extends McpAgent<Env> {
     // is bound to; the admin identity has no bound address and must pass `from`.
     this.server.tool(
       "send_email",
-      "Send an email. Non-admin keys always send from their own bound address. Pass in_reply_to with a stored email id to reply in-thread (recipient, subject and threading headers are filled in automatically).",
+      "Send an email via Resend (or the Cloudflare send_email binding when no Resend key is configured). Non-admin keys always send from their own bound address. Pass in_reply_to with a stored email id to reply in-thread (recipient, subject and threading headers are filled in automatically).",
       {
         to: z.array(z.string().email()).optional().describe("Recipients; optional when in_reply_to is given"),
         cc: z.array(z.string().email()).optional().describe("Cc recipients"),
@@ -121,7 +121,7 @@ export class EmailMCP extends McpAgent<Env> {
         from: z.string().email().optional().describe("Admin only: the sending address"),
       },
       async ({ to, cc, subject, text, html, in_reply_to, from }) => {
-        const sender = this.userEmail ?? from;
+        const sender = resolveSender(this.userEmail, from);
         if (!sender) return json({ ok: false, error: "from is required for the admin identity" });
         return json(await sendEmail(this.env, sender, { to, cc, subject, text, html, in_reply_to }, this.userEmail));
       }
