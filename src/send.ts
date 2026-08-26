@@ -128,6 +128,16 @@ function normalizeBase64(raw: string): string | null {
   return b64;
 }
 
+// Cloudflare's send binding takes the raw bytes and base64-encodes them itself,
+// unlike Resend which wants the base64 text. Handing it base64 makes the encoded
+// text the file's contents — the attachment arrives readable but meaningless.
+function decodeBase64(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
 function utf8Bytes(s?: string): number {
   return s ? new TextEncoder().encode(s).length : 0;
 }
@@ -262,6 +272,7 @@ async function viaResend(apiKey: string, from: string, e: Envelope, req: SendReq
           ? {
               attachments: e.attachments.map((a) => ({
                 filename: a.filename,
+                // base64 text, not bytes — see decodeBase64 for why the two differ.
                 content: a.content_base64,
                 ...(a.content_type ? { content_type: a.content_type } : {}),
               })),
@@ -299,7 +310,7 @@ async function viaCloudflare(binding: SendEmail, from: string, e: Envelope, req:
         ? {
             attachments: e.attachments.map((a) => ({
               filename: a.filename,
-              content: a.content_base64,
+              content: decodeBase64(a.content_base64),
               type: a.content_type || "application/octet-stream",
               disposition: "attachment" as const,
             })),
