@@ -55,16 +55,24 @@ const MIME = {
 
 function parseArgs(argv) {
   const a = { to: [], cc: [], attach: [], forward: [] };
+  // A flag left without its value would otherwise read as undefined and surface
+  // much later as a confusing error — say a missing --reply looking like a
+  // missing recipient. Say what is actually wrong, here.
+  const value = (i, flag) => {
+    const v = argv[i + 1];
+    if (v === undefined || v.startsWith("--")) fail(`${flag} requires a value`);
+    return v;
+  };
   for (let i = 0; i < argv.length; i++) {
     const v = argv[i];
-    if (v === "--to") a.to.push(argv[++i]);
-    else if (v === "--cc") a.cc.push(argv[++i]);
-    else if (v === "--subject") a.subject = argv[++i];
-    else if (v === "--text") a.text = argv[++i];
-    else if (v === "--text-file") a.textFile = argv[++i];
-    else if (v === "--reply") a.reply = argv[++i];
-    else if (v === "--attach") a.attach.push(argv[++i]);
-    else if (v === "--forward-attachment") a.forward.push(argv[++i]);
+    if (v === "--to") a.to.push(value(i++, v));
+    else if (v === "--cc") a.cc.push(value(i++, v));
+    else if (v === "--subject") a.subject = value(i++, v);
+    else if (v === "--text") a.text = value(i++, v);
+    else if (v === "--text-file") a.textFile = value(i++, v);
+    else if (v === "--reply") a.reply = value(i++, v);
+    else if (v === "--attach") a.attach.push(value(i++, v));
+    else if (v === "--forward-attachment") a.forward.push(value(i++, v));
     else if (v === "--json") a.json = true;
     else if (v === "--help" || v === "-h") { printHelp(); process.exit(0); }
     else fail(`unknown argument: ${v}`);
