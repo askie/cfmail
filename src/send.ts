@@ -272,6 +272,7 @@ async function viaResend(apiKey: string, from: string, e: Envelope, req: SendReq
           ? {
               attachments: e.attachments.map((a) => ({
                 filename: a.filename,
+                // base64 text, not bytes — see decodeBase64 for why the two differ.
                 content: a.content_base64,
                 ...(a.content_type ? { content_type: a.content_type } : {}),
               })),
