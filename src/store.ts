@@ -16,6 +16,12 @@ function snippet(text: string | null, len = 200): string | null {
 // per isolate; a genuine failure clears the cache so the next message retries.
 let schemaReady: Promise<void> | null = null;
 
+// Deliberately swallows a genuine failure rather than rethrowing: the message
+// still reaches the D1 batch and fails there. The cost is a few orphaned R2
+// objects when the column really is missing (the retry writes fresh keys); the
+// benefit is that a transient ALTER hiccup on an already-migrated database does
+// not reject mail. If this is ever flipped to rethrow, the "retried on the next
+// message" test below asserts the swallow, and must be updated with it.
 export function ensureSchema(env: Env): Promise<void> {
   schemaReady ??= env.DB.prepare(`ALTER TABLE emails ADD COLUMN refs TEXT`)
     .run()
@@ -28,7 +34,7 @@ export function ensureSchema(env: Env): Promise<void> {
 }
 
 // Test seam: forget whether the migration already ran in this isolate.
-export function resetSchemaCache(): void {
+export function _resetSchemaCacheForTests(): void {
   schemaReady = null;
 }
 

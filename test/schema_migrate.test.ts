@@ -1,11 +1,11 @@
 import { test, expect, vi, beforeEach } from "vitest";
-import { ensureSchema, resetSchemaCache } from "../src/store";
+import { ensureSchema, _resetSchemaCacheForTests } from "../src/store";
 
 function envWith(run: any) {
   return { DB: { prepare: vi.fn().mockReturnValue({ run }) } } as any;
 }
 
-beforeEach(() => resetSchemaCache());
+beforeEach(() => _resetSchemaCacheForTests());
 
 test("adds the refs column once per isolate", async () => {
   const run = vi.fn().mockResolvedValue({});
@@ -28,6 +28,8 @@ test("an already-migrated database is not retried", async () => {
   expect(run).toHaveBeenCalledTimes(1);
 });
 
+// Asserts the swallow documented on ensureSchema: the caller proceeds to the
+// INSERT and fails there. Flip this together with that decision, never alone.
 test("a genuine failure is retried on the next message instead of being cached", async () => {
   const run = vi.fn()
     .mockRejectedValueOnce(new Error("D1_ERROR: network"))
