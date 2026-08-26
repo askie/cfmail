@@ -422,6 +422,29 @@ test("the body counts toward the size limit too", async () => {
   expect(cf).not.toHaveBeenCalled();
 });
 
+test("an oversized body is caught even with no attachments at all", async () => {
+  const cf = vi.fn();
+  const r = await sendEmail(envWith({ cf }), "me@my.dev", {
+    to: ["a@x.com"], subject: "s", text: "x".repeat(6 * 1024 * 1024),
+  });
+
+  expect(r.ok).toBe(false);
+  expect(r.error).toMatch(/over the 5 MiB limit/);
+  expect(cf).not.toHaveBeenCalled();
+});
+
+test("Resend's oversize message is reported in the same unit as its limit", async () => {
+  const f = mockFetch(200, { id: "x" });
+  const r = await sendEmail(envWith({ resend: true }), "me@my.dev", {
+    to: ["a@x.com"], subject: "s", text: "x".repeat(41 * 1000 * 1000),
+  });
+
+  expect(r.ok).toBe(false);
+  expect(r.error).toMatch(/MB encoded, over the 40 MB limit/);
+  expect(r.error).not.toMatch(/MiB/);
+  expect(f).not.toHaveBeenCalled();
+});
+
 test("the same payload is within Resend's larger limit", async () => {
   mockFetch(200, { id: "re-a5" });
   const encoded = "A".repeat(Math.ceil((4.5 * 1024 * 1024) / 4) * 4);
