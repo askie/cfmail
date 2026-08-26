@@ -368,7 +368,7 @@ test("invalid base64 is rejected before the provider is called", async () => {
   });
 
   expect(r.ok).toBe(false);
-  expect(r.error).toMatch(/not valid base64/);
+  expect(r.error).toMatch(/must be standard base64 with padding/);
   expect(f).not.toHaveBeenCalled();
 });
 
@@ -382,39 +382,52 @@ test("an attachment without a filename is rejected", async () => {
   expect(r.error).toMatch(/needs a filename/);
 });
 
-test("line-wrapped base64 is accepted", async () => {
+test("line-wrapped base64 is unwrapped before it is sent", async () => {
   const f = mockFetch(200, { id: "re-a4" });
-  const wrapped = "aGVs\nbG8=";
   const r = await sendEmail(envWith({ resend: true }), "me@my.dev", {
     to: ["a@x.com"], subject: "s", text: "b",
-    attachments: [{ filename: "note.txt", content_base64: wrapped }],
+    attachments: [{ filename: "note.txt", content_base64: "aGVs\nbG8=" }],
   });
 
   expect(r.ok).toBe(true);
-  // Passed through verbatim; providers accept wrapped base64.
-  expect(JSON.parse((f.mock.calls[0][1] as any).body).attachments[0].content).toBe(wrapped);
+  // Neither provider promises to tolerate whitespace, so it is stripped for them.
+  expect(JSON.parse((f.mock.calls[0][1] as any).body).attachments[0].content).toBe(HELLO);
 });
 
-test("Cloudflare's 5 MiB cap is enforced before sending", async () => {
+test("Cloudflare's 5 MiB cap is measured on the encoded payload, not the decoded one", async () => {
   const cf = vi.fn();
-  const big = "A".repeat(8 * 1024 * 1024);  // ~6 MiB decoded
+  // 4.5 MiB of base64 decodes to ~3.4 MiB. Judged by decoded size this would
+  // pass, then be rejected by Cloudflare — the exact case this check exists for.
+  const encoded = "A".repeat(Math.ceil((4.5 * 1024 * 1024) / 4) * 4);
   const r = await sendEmail(envWith({ cf }), "me@my.dev", {
-    to: ["a@x.com"], subject: "s", text: "b",
-    attachments: [{ filename: "big.bin", content_base64: big }],
+    to: ["a@x.com"], subject: "b".repeat(1024 * 1024), text: "b".repeat(1024 * 1024),
+    attachments: [{ filename: "big.bin", content_base64: encoded }],
   });
 
   expect(r.ok).toBe(false);
   expect(r.provider).toBe("cloudflare");
-  expect(r.error).toMatch(/over the 5.0 MB limit \(cloudflare\)/);
+  expect(r.error).toMatch(/over the 5 MiB limit \(cloudflare\)/);
+  expect(cf).not.toHaveBeenCalled();
+});
+
+test("the body counts toward the size limit too", async () => {
+  const cf = vi.fn();
+  const r = await sendEmail(envWith({ cf }), "me@my.dev", {
+    to: ["a@x.com"], subject: "s", text: "x".repeat(6 * 1024 * 1024),
+    attachments: [{ filename: "tiny.txt", content_base64: HELLO }],
+  });
+
+  expect(r.ok).toBe(false);
+  expect(r.error).toMatch(/over the 5 MiB limit/);
   expect(cf).not.toHaveBeenCalled();
 });
 
 test("the same payload is within Resend's larger limit", async () => {
-  const f = mockFetch(200, { id: "re-a5" });
-  const big = "A".repeat(8 * 1024 * 1024);
+  mockFetch(200, { id: "re-a5" });
+  const encoded = "A".repeat(Math.ceil((4.5 * 1024 * 1024) / 4) * 4);
   const r = await sendEmail(envWith({ resend: true }), "me@my.dev", {
     to: ["a@x.com"], subject: "s", text: "b",
-    attachments: [{ filename: "big.bin", content_base64: big }],
+    attachments: [{ filename: "big.bin", content_base64: encoded }],
   });
 
   expect(r.ok).toBe(true);
@@ -432,4 +445,43 @@ test("too many attachments is rejected", async () => {
   expect(r.ok).toBe(false);
   expect(r.error).toMatch(/at most 32 attachments/);
   expect(f).not.toHaveBeenCalled();
+});
+
+test("forwarding scopes by the caller's mailbox identity, not by the sending address", async () => {
+  const f = mockFetch(200, { id: "x" });
+  const env = envWith({
+    resend: true,
+    att: { id: "att1", email_id: "e1", filename: "f.pdf", content_type: null, size: 5, r2_key: "k" },
+    // The mail belongs to the address the message is sent *from*, but the caller
+    // is a different identity: passing `from` to getAttachment would let it through.
+    row: { to_addr: "shared@my.dev", cc_addr: null },
+    r2: r2Object("hello"),
+  });
+
+  const r = await sendEmail(env, "shared@my.dev", {
+    to: ["a@x.com"], subject: "s", text: "b", forward_attachment_ids: ["att1"],
+  }, "me@my.dev");
+
+  expect(r.ok).toBe(false);
+  expect(r.error).toMatch(/not found or access denied/);
+  expect(f).not.toHaveBeenCalled();
+});
+
+test("an empty stored file is forwardable, not reported as missing", async () => {
+  const f = mockFetch(200, { id: "re-a6" });
+  const env = envWith({
+    resend: true,
+    att: { id: "att1", email_id: "e1", filename: "empty.txt", content_type: "text/plain", size: 0, r2_key: "k" },
+    row: { to_addr: "me@my.dev", cc_addr: null },
+    r2: r2Object(""),
+  });
+
+  const r = await sendEmail(env, "me@my.dev", {
+    to: ["a@x.com"], subject: "s", text: "b", forward_attachment_ids: ["att1"],
+  }, "me@my.dev");
+
+  expect(r.ok).toBe(true);
+  expect(JSON.parse((f.mock.calls[0][1] as any).body).attachments[0]).toMatchObject({
+    filename: "empty.txt", content: "",
+  });
 });

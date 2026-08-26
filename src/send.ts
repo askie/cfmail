@@ -32,12 +32,13 @@ export interface SendOutcome {
   hint?: string;
 }
 
-// What each backend accepts. Cloudflare caps the whole message at 5 MiB; Resend
-// allows 40 MB. Both are checked before the payload is built, so an oversized
-// attachment is reported as a clear error instead of a provider rejection.
-const LIMITS: Record<Provider, { maxBytes: number; maxCount: number }> = {
-  resend: { maxBytes: 40 * 1024 * 1024, maxCount: 32 },
-  cloudflare: { maxBytes: 5 * 1024 * 1024, maxCount: 32 },
+// What each backend accepts, measured the way the provider measures it: the size
+// of the whole message on the wire, where attachments travel base64-encoded and
+// are therefore 4/3 of their decoded size. Checking decoded bytes instead would
+// wave through a payload that the provider then rejects.
+const LIMITS: Record<Provider, { maxBytes: number; maxCount: number; label: string }> = {
+  resend: { maxBytes: 40 * 1000 * 1000, maxCount: 32, label: "40 MB" },
+  cloudflare: { maxBytes: 5 * 1024 * 1024, maxCount: 32, label: "5 MiB" },
 };
 
 // A non-admin key always sends as the address it is bound to; a caller-supplied
@@ -105,14 +106,17 @@ interface Envelope {
   attachments: SendAttachment[];
 }
 
-// Decoded size of a base64 payload, or null when it is not valid base64.
-// Whitespace is tolerated: many encoders wrap lines at 76 characters.
-function base64Bytes(raw: string): number | null {
+// Strip the line wrapping many encoders apply, and reject anything that is not
+// standard padded base64. Providers do not promise to tolerate whitespace, so
+// the stripped form is what gets sent.
+function normalizeBase64(raw: string): string | null {
   const b64 = raw.replace(/\s+/g, "");
   if (b64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(b64)) return null;
-  if (!b64.length) return 0;
-  const pad = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
-  return (b64.length / 4) * 3 - pad;
+  return b64;
+}
+
+function utf8Bytes(s?: string): number {
+  return s ? new TextEncoder().encode(s).length : 0;
 }
 
 // Merge inline attachments with forwarded stored ones, then check them against
@@ -129,10 +133,13 @@ async function collectAttachments(
   for (const a of req.attachments ?? []) {
     const name = a.filename?.trim();
     if (!name) return { error: "each attachment needs a filename" };
-    if (base64Bytes(a.content_base64) === null) {
-      return { error: `attachment "${name}": content_base64 is not valid base64` };
+    const b64 = normalizeBase64(a.content_base64);
+    if (b64 === null) {
+      return {
+        error: `attachment "${name}": content_base64 must be standard base64 with padding (A-Z a-z 0-9 + / =)`,
+      };
     }
-    out.push({ filename: name, content_type: a.content_type, content_base64: a.content_base64 });
+    out.push({ filename: name, content_type: a.content_type, content_base64: b64 });
   }
 
   for (const id of req.forward_attachment_ids ?? []) {
@@ -143,7 +150,10 @@ async function collectAttachments(
       return { error: `forward_attachment_ids: lookup failed: ${e?.message ?? String(e)}` };
     }
     if (!stored) return { error: `forward_attachment_ids: ${id} not found or access denied` };
-    if (!stored.content_base64) return { error: `forward_attachment_ids: ${id} has no stored content` };
+    // An empty string is a legitimately empty file; only a null means it is gone.
+    if (stored.content_base64 == null) {
+      return { error: `forward_attachment_ids: ${id} has no stored content` };
+    }
     out.push({
       filename: stored.meta.filename || `attachment-${id}`,
       content_type: stored.meta.content_type ?? undefined,
@@ -153,14 +163,18 @@ async function collectAttachments(
 
   if (!out.length) return { attachments: out };
 
-  const { maxBytes, maxCount } = LIMITS[provider];
+  const { maxBytes, maxCount, label } = LIMITS[provider];
   if (out.length > maxCount) {
     return { error: `at most ${maxCount} attachments (${provider})` };
   }
-  const total = out.reduce((n, a) => n + (base64Bytes(a.content_base64) ?? 0), 0);
-  if (total > maxBytes) {
-    const mb = (n: number) => (n / 1024 / 1024).toFixed(1);
-    return { error: `attachments total ${mb(total)} MB, over the ${mb(maxBytes)} MB limit (${provider})` };
+
+  // Attachments go out base64-encoded, so their encoded length is what counts
+  // against the provider's message-size limit, alongside the body.
+  const wire =
+    out.reduce((n, a) => n + a.content_base64.length, 0) + utf8Bytes(req.text) + utf8Bytes(req.html);
+  if (wire > maxBytes) {
+    const mib = (wire / 1024 / 1024).toFixed(1);
+    return { error: `message is ~${mib} MiB encoded, over the ${label} limit (${provider})` };
   }
 
   return { attachments: out };

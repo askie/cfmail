@@ -297,7 +297,9 @@ npx wrangler secret put RESEND_API_KEY -c wrangler.local.jsonc
 - 「把刚才那封邮件的发票附件转发给会计」——AI 用 `forward_attachment_ids` 直接从存储里取，不用先下载再上传，大文件也不占对话
 - 「把这份报告作为附件发出去」——AI 自己生成文件内容附上去
 
-能带多大：Resend 单封 40 MB，Cloudflare 5 MiB，两家都最多 32 个附件。超了会在发送前就明确告诉你超了多少，不会发出去才失败。
+能带多大：Resend 单封 40 MB，Cloudflare 5 MiB，两家都最多 32 个附件。
+
+> 注意附件在邮件里是 base64 编码传输的，会**膨胀约 1/3**。所以走 Cloudflare 时，5 MiB 的限额换算成实际文件大概是 3.7 MB 左右；走 Resend 则是 30 MB 左右。服务按编码后的真实大小（还要算上正文）在发送前就检查，超了会直接告诉你，不会等发出去才失败。
 
 转发别人邮箱里的附件是转不了的——和读邮件同一套权限。
 
