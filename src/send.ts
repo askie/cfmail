@@ -1,5 +1,11 @@
 import type { Env } from "./types";
-import { getEmail } from "./store";
+import { getEmail, getAttachment } from "./store";
+
+export interface SendAttachment {
+  filename: string;
+  content_type?: string;
+  content_base64: string;
+}
 
 export interface SendRequest {
   to?: string[];
@@ -8,6 +14,9 @@ export interface SendRequest {
   text: string;
   html?: string;
   in_reply_to?: string;
+  attachments?: SendAttachment[];
+  // Ids of stored attachments to forward, resolved against the caller's mailbox.
+  forward_attachment_ids?: string[];
 }
 
 export type Provider = "resend" | "cloudflare";
@@ -22,6 +31,28 @@ export interface SendOutcome {
   code?: string;
   hint?: string;
 }
+
+// What each backend accepts, measured the way the provider measures it: the size
+// of the whole message on the wire, where attachments travel base64-encoded and
+// are therefore 4/3 of their decoded size. Checking decoded bytes instead would
+// wave through a payload that the provider then rejects.
+const LIMITS: Record<Provider, { maxBytes: number; maxCount: number; unit: number; unitName: string }> = {
+  // Resend documents "40MB after Base64 encoding"; decimal is the conservative
+  // reading of an unqualified "MB".
+  resend: { maxBytes: 40 * 1000 * 1000, maxCount: 32, unit: 1000 * 1000, unitName: "MB" },
+  cloudflare: { maxBytes: 5 * 1024 * 1024, maxCount: 32, unit: 1024 * 1024, unitName: "MiB" },
+};
+
+// Assembling the MIME message costs more than the payload itself: base64 is
+// re-wrapped at 76 columns (~3%) and every part carries its own headers. Without
+// this margin a message sized right at the limit still gets rejected.
+const WRAP_FACTOR = 1.03;
+const PART_OVERHEAD = 512;
+
+// A non-ASCII body is transfer-encoded too (base64 or quoted-printable), which
+// costs up to a third again. Charged to every body: for CJK mail that is the
+// normal case, not an edge one.
+const BODY_ENCODING_FACTOR = 4 / 3;
 
 // A non-admin key always sends as the address it is bound to; a caller-supplied
 // `from` is only honoured for the admin identity, which has no bound address.
@@ -85,6 +116,81 @@ interface Envelope {
   cc: string[];
   subject: string;
   headers: Record<string, string>;
+  attachments: SendAttachment[];
+}
+
+// Strip the line wrapping many encoders apply, and reject anything that is not
+// standard padded base64. Providers do not promise to tolerate whitespace, so
+// the stripped form is what gets sent.
+function normalizeBase64(raw: string): string | null {
+  const b64 = raw.replace(/\s+/g, "");
+  if (b64.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(b64)) return null;
+  return b64;
+}
+
+function utf8Bytes(s?: string): number {
+  return s ? new TextEncoder().encode(s).length : 0;
+}
+
+// Merge inline attachments with forwarded stored ones, then check them against
+// the chosen backend's limits. Forwarded ids go through getAttachment, so the
+// caller can only attach files from their own mailbox.
+async function collectAttachments(
+  env: Env,
+  req: SendRequest,
+  provider: Provider,
+  userEmail?: string
+): Promise<{ attachments: SendAttachment[] } | { error: string }> {
+  const out: SendAttachment[] = [];
+
+  for (const a of req.attachments ?? []) {
+    const name = a.filename?.trim();
+    if (!name) return { error: "each attachment needs a filename" };
+    const b64 = normalizeBase64(a.content_base64);
+    if (b64 === null) {
+      return {
+        error: `attachment "${name}": content_base64 must be standard base64 with padding (A-Z a-z 0-9 + / =)`,
+      };
+    }
+    out.push({ filename: name, content_type: a.content_type, content_base64: b64 });
+  }
+
+  for (const id of req.forward_attachment_ids ?? []) {
+    let stored;
+    try {
+      stored = await getAttachment(env, id, userEmail);
+    } catch (e: any) {
+      return { error: `forward_attachment_ids: lookup failed: ${e?.message ?? String(e)}` };
+    }
+    if (!stored) return { error: `forward_attachment_ids: ${id} not found or access denied` };
+    // An empty string is a legitimately empty file; only a null means it is gone.
+    if (stored.content_base64 == null) {
+      return { error: `forward_attachment_ids: ${id} has no stored content` };
+    }
+    out.push({
+      filename: stored.meta.filename || `attachment-${id}`,
+      content_type: stored.meta.content_type ?? undefined,
+      content_base64: stored.content_base64,
+    });
+  }
+
+  const { maxBytes, maxCount, unit, unitName } = LIMITS[provider];
+  const label = `${maxBytes / unit} ${unitName}`;
+  if (out.length > maxCount) {
+    return { error: `at most ${maxCount} attachments (${provider})` };
+  }
+
+  // Runs even with no attachments: a body alone can exceed the limit, and that
+  // would otherwise reach the provider as the very rejection this check prevents.
+  const wire =
+    out.reduce((n, a) => n + Math.ceil(a.content_base64.length * WRAP_FACTOR) + PART_OVERHEAD, 0) +
+    Math.ceil((utf8Bytes(req.text) + utf8Bytes(req.html)) * BODY_ENCODING_FACTOR);
+  if (wire > maxBytes) {
+    const size = (wire / unit).toFixed(1);
+    return { error: `message is ~${size} ${unitName} encoded, over the ${label} limit (${provider})` };
+  }
+
+  return { attachments: out };
 }
 
 // Resolve recipient/subject/threading headers, deriving them from the replied-to
@@ -92,6 +198,7 @@ interface Envelope {
 async function buildEnvelope(
   env: Env,
   req: SendRequest,
+  provider: Provider,
   userEmail?: string
 ): Promise<{ envelope: Envelope } | { error: string }> {
   let to = dedupe(req.to ?? []);
@@ -131,7 +238,10 @@ async function buildEnvelope(
   const cc = dedupe(req.cc ?? []);
   if (to.length + cc.length > 50) return { error: "at most 50 recipients across to and cc" };
 
-  return { envelope: { to, cc, subject, headers } };
+  const att = await collectAttachments(env, req, provider, userEmail);
+  if ("error" in att) return { error: att.error };
+
+  return { envelope: { to, cc, subject, headers, attachments: att.attachments } };
 }
 
 async function viaResend(apiKey: string, from: string, e: Envelope, req: SendRequest): Promise<SendOutcome> {
@@ -148,6 +258,15 @@ async function viaResend(apiKey: string, from: string, e: Envelope, req: SendReq
         ...(req.html ? { html: req.html } : {}),
         ...(e.cc.length ? { cc: e.cc } : {}),
         ...(Object.keys(e.headers).length ? { headers: e.headers } : {}),
+        ...(e.attachments.length
+          ? {
+              attachments: e.attachments.map((a) => ({
+                filename: a.filename,
+                content: a.content_base64,
+                ...(a.content_type ? { content_type: a.content_type } : {}),
+              })),
+            }
+          : {}),
       }),
     });
   } catch (err: any) {
@@ -176,6 +295,16 @@ async function viaCloudflare(binding: SendEmail, from: string, e: Envelope, req:
       ...(req.html ? { html: req.html } : {}),
       ...(e.cc.length ? { cc: e.cc } : {}),
       ...(Object.keys(e.headers).length ? { headers: e.headers } : {}),
+      ...(e.attachments.length
+        ? {
+            attachments: e.attachments.map((a) => ({
+              filename: a.filename,
+              content: a.content_base64,
+              type: a.content_type || "application/octet-stream",
+              disposition: "attachment" as const,
+            })),
+          }
+        : {}),
     });
     return { ok: true, provider: "cloudflare", message_id: r?.messageId, to: e.to, subject: e.subject };
   } catch (err: any) {
@@ -201,8 +330,9 @@ export async function sendEmail(
     };
   }
 
-  const built = await buildEnvelope(env, req, userEmail);
-  if ("error" in built) return { ok: false, error: built.error };
+  const provider: Provider = apiKey ? "resend" : "cloudflare";
+  const built = await buildEnvelope(env, req, provider, userEmail);
+  if ("error" in built) return { ok: false, provider, error: built.error };
 
   return apiKey
     ? viaResend(apiKey, from, built.envelope, req)
