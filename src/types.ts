@@ -3,6 +3,8 @@ export interface Env {
   BUCKET: R2Bucket;
   MCP_OBJECT: DurableObjectNamespace;
   MCP_TOKEN: string;
+  // Present only when the send_email binding is configured in wrangler.
+  EMAIL?: SendEmail;
 }
 
 // One stored attachment (R2 + a row in `attachments`).

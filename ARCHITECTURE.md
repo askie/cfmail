@@ -20,11 +20,22 @@
                         │                                                                                      │
    AI 客户端 ──HTTP───▶  fetch() /mcp  ── Bearer 校验 ──▶ McpAgent(Streamable HTTP, Durable Object)             │
    (Claude 等)          │                                   工具: search/list/get_email/get_attachment/stats  │
-                        │                                        get_webhook/set_webhook                       │
+                        │                                        send_email / get_webhook/set_webhook          │
+                        │                                             │                                        │
+                        │                                             └─▶ send_email binding ──▶ 收件方         │
                         └──────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-两条路径共用同一套 D1 + R2 存储，互不耦合：收信只写，查询只读（webhook 配置除外）。
+两条路径共用同一套 D1 + R2 存储，互不耦合：收信只写，查询只读（webhook 配置与发信除外）。
+
+## 发信路径 `send_email`
+
+走 Cloudflare Email Sending 的 `send_email` binding，不引入第三方发信服务，也不自己拼 MIME（用官方的结构化 builder）。
+
+- **发件人不可伪造**：普通 Key 的 `from` 恒等于 Key 绑定的地址，请求里传的 `from` 会被忽略；只有管理员身份（无绑定地址）需要显式指定 `from`。
+- **回信复用收信数据**：`in_reply_to` 传一个已存邮件 id，经 `getEmail` 按调用方邮箱鉴权后取出原件，推导收件人、`Re:` 主题以及 `In-Reply-To`/`References` 头。鉴权走的是查询路径同一把锁，因此回不了别人的信。
+- **失败不抛异常**：Cloudflare 的错误码（如 `E_SENDER_NOT_VERIFIED`、`E_RECIPIENT_NOT_ALLOWED`）连同处置建议一起作为结果返回，方便 AI 直接读懂并转述给用户。
+- **binding 可缺省**：`Env.EMAIL` 是可选的，未配置时只有发信返回提示，收信与查询不受影响。
 
 ## 收信路径 `email()`
 
@@ -94,6 +105,7 @@ MCP 协议本身支持服务端→客户端的订阅推送，但只在客户端�
 | R2 | `email-store`（binding `BUCKET`） |
 | Secret | `MCP_TOKEN` |
 | Email Routing | 你的域名，catch-all → worker `cloudflare-email` |
+| Email Sending | `send_email` binding `EMAIL`；发任意外部地址需给域名做 sending onboarding |
 
 ## 目录结构
 
@@ -105,7 +117,8 @@ src/
   store.ts    D1/R2 读写：存邮件 + list/search/get/stats
   config.ts   D1 键值配置（webhook 地址）
   push.ts     webhook 投递
-  mcp.ts      McpAgent + 7 个 MCP 工具
+  send.ts     发信：组装 builder、回信线程头、错误码转提示
+  mcp.ts      McpAgent + 8 个 MCP 工具
   types.ts    Env 与数据类型
 schema.sql    D1 建表
 wrangler.jsonc 部署配置与绑定

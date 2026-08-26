@@ -13,6 +13,7 @@ import {
   deleteApiKey,
 } from "./store";
 import { getWebhook, setWebhook } from "./config";
+import { sendEmail } from "./send";
 
 function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -103,6 +104,27 @@ export class EmailMCP extends McpAgent<Env> {
       "Mailbox stats: total stored emails, how many have attachments, latest timestamps.",
       {},
       async () => json(await stats(this.env, this.userEmail))
+    );
+
+    // --- Write tool: send mail. A non-admin key always sends as the address it
+    // is bound to; the admin identity has no bound address and must pass `from`.
+    this.server.tool(
+      "send_email",
+      "Send an email. Non-admin keys always send from their own bound address. Pass in_reply_to with a stored email id to reply in-thread (recipient, subject and threading headers are filled in automatically).",
+      {
+        to: z.array(z.string().email()).optional().describe("Recipients; optional when in_reply_to is given"),
+        cc: z.array(z.string().email()).optional().describe("Cc recipients"),
+        subject: z.string().optional().describe("Subject; optional when in_reply_to is given"),
+        text: z.string().describe("Plain-text body"),
+        html: z.string().optional().describe("Optional HTML body"),
+        in_reply_to: z.string().optional().describe("Email id to reply to"),
+        from: z.string().email().optional().describe("Admin only: the sending address"),
+      },
+      async ({ to, cc, subject, text, html, in_reply_to, from }) => {
+        const sender = this.userEmail ?? from;
+        if (!sender) return json({ ok: false, error: "from is required for the admin identity" });
+        return json(await sendEmail(this.env, sender, { to, cc, subject, text, html, in_reply_to }, this.userEmail));
+      }
     );
 
     // --- Admin-only tools: registered only for the admin identity, so non-admin

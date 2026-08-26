@@ -20,6 +20,7 @@
 - 📥 **自动收信**：发到你域名下任意地址的邮件，全部收下并存档（正文 + 附件都留着）。
 - 🔎 **AI 可查询**：AI 能搜索关键词、按发件人/时间筛选、读邮件全文、下载附件。
 - 🈶 **中文也能搜**：中文主题和正文都能搜到。
+- 📤 **能发信、能回信**：AI 可以用你的地址发邮件，也能对着某封邮件直接回复（自动带上原主题和会话线索）。
 - 🔔 **新邮件提醒（可选）**：每来一封新邮件，可以自动通知到你指定的地址。
 - 🔐 **有访问密码**：接口由一个密钥保护，只有持密钥的人/AI 才能查。
 
@@ -137,7 +138,7 @@ claude mcp add --transport http email https://你的子域名/mcp \
 - 「打开第一封，把附件下载下来」
 - 「上个月有没有来自某某的邮件」
 
-> 背后 AI 会用到这些能力：搜索 `search_emails`、列表 `list_emails`、读单封 `get_email`、取附件 `get_attachment`、统计 `stats`，以及设置新邮件提醒 `set_webhook` / 查看 `get_webhook`。你不用记这些名字，AI 会自己选。
+> 背后 AI 会用到这些能力：搜索 `search_emails`、列表 `list_emails`、读单封 `get_email`、取附件 `get_attachment`、统计 `stats`、发信 `send_email`，以及设置新邮件提醒 `set_webhook` / 查看 `get_webhook`。你不用记这些名字，AI 会自己选。
 
 ---
 
@@ -232,6 +233,39 @@ node scripts/fetch-unread.mjs
 
 > 还没接 AI 也能验证：`npx wrangler tail cloudflare-email` 看是否收到，或直接查数据库：
 > `npx wrangler d1 execute email_db --remote --command "SELECT subject,from_addr FROM emails ORDER BY date DESC LIMIT 3"`
+
+---
+
+## 发邮件（可选）
+
+服务不只收信，也能用你的地址把邮件发出去。接好之后直接对 AI 说：
+
+- 「用我的邮箱给 xxx@xx.com 发一封邮件，主题是……」
+- 「回复刚才那封发票邮件，告诉对方已收到」——会自动带上原主题（`Re: …`）和会话线索，收件人那边能看到是同一串对话。
+
+### 能发给谁
+
+Cloudflare 的发信分两档：
+
+| 发给谁 | 需要做什么 | 费用 |
+| --- | --- | --- |
+| 你自己账号里**已验证的目标地址**（Email Routing → Destination addresses 里点过验证信的那些） | 什么都不用做 | 免费，不计配额 |
+| **任意外部收件人** | 在 Cloudflare 后台 Email → Email Sending 里给域名做一次 onboarding，按提示加上 SPF/DKIM/DMARC 记录 | 需要 Workers 付费计划，计入月配额 |
+
+发失败时工具会把 Cloudflare 的错误码和该怎么处理一并返回，比如 `E_RECIPIENT_NOT_ALLOWED` 就表示对方还不是已验证地址、也还没做域名 onboarding。
+
+### 发件人是谁
+
+- 用普通 Key 的用户：**只能用自己 Key 绑定的那个地址**发信，改不了，也发不出别人的地址。
+- 管理员：没有绑定地址，发信时要自己指定 `from`。
+
+> 部署时记得确认 `wrangler.local.jsonc` 里有这一行（`wrangler.jsonc` 模板里已经带了）：
+>
+> ```jsonc
+> "send_email": [{ "name": "EMAIL" }],
+> ```
+>
+> 没有这行的话，发信会返回「binding 未配置」的提示，收信不受影响。
 
 ---
 
