@@ -10,12 +10,36 @@ function snippet(text: string | null, len = 200): string | null {
   return t.length > len ? t.slice(0, len) + "…" : t;
 }
 
+// `refs` was added after the first deployments. A missing column would fail every
+// INSERT and silently stop mail from arriving, so the column is added on demand
+// instead of relying on the operator remembering to run the migration. Runs once
+// per isolate; a genuine failure clears the cache so the next message retries.
+let schemaReady: Promise<void> | null = null;
+
+export function ensureSchema(env: Env): Promise<void> {
+  schemaReady ??= env.DB.prepare(`ALTER TABLE emails ADD COLUMN refs TEXT`)
+    .run()
+    .then(() => undefined)
+    .catch((e) => {
+      // "duplicate column" just means someone (or an earlier isolate) got there first.
+      if (!/duplicate column/i.test(String(e?.message ?? e))) schemaReady = null;
+    });
+  return schemaReady;
+}
+
+// Test seam: forget whether the migration already ran in this isolate.
+export function resetSchemaCache(): void {
+  schemaReady = null;
+}
+
 // Persist a parsed email: raw + html + attachments -> R2, metadata + FTS + attachment rows -> D1.
 export async function storeEmail(
   env: Env,
   rawBuf: ArrayBuffer,
   parsed: ParsedEmail
 ): Promise<EmailRow> {
+  await ensureSchema(env);
+
   const id = crypto.randomUUID();
   const received_at = Date.now();
   const date = parsed.date ?? received_at;
