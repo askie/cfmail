@@ -249,7 +249,7 @@ node scripts/fetch-unread.mjs
 
 | | Resend（默认，推荐） | Cloudflare Email Sending（回退） |
 | --- | --- | --- |
-| 发给外部收件人 | 免费 3000 封/月 | 要 Workers 付费计划 + 域名 onboarding |
+| 发给外部收件人 | 免费档 3000 封/月、100 封/天 | 要 Workers 付费计划 + 域名 onboarding |
 | 发给自己已验证的地址 | 同上，计入额度 | 免费，不计配额 |
 | 退信/打开率统计 | 有面板 | 没有 |
 | 怎么启用 | 设一个 secret（见下） | 配 `send_email` binding |

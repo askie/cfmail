@@ -76,6 +76,20 @@ test("a Resend error name is surfaced with an actionable hint", async () => {
   expect(r.hint).toMatch(/not verified/);
 });
 
+test("a non-JSON error response degrades to the HTTP status", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(new Response("<html>502 Bad Gateway</html>", { status: 502 }))
+  );
+  const r = await sendEmail(envWith({ resend: true }), "me@my.dev", {
+    to: ["a@x.com"], subject: "s", text: "b",
+  });
+
+  expect(r.ok).toBe(false);
+  expect(r.error).toBe("HTTP 502");
+  expect(r.hint).toBeUndefined();
+});
+
 test("a network failure is reported instead of throwing", async () => {
   vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNRESET")));
   const r = await sendEmail(envWith({ resend: true }), "me@my.dev", {
@@ -163,7 +177,7 @@ test("replying to a subject-less email asks the caller for a subject", async () 
   const r = await sendEmail(env, "me@my.dev", { text: "ok", in_reply_to: "e1" }, "me@my.dev");
 
   expect(r.ok).toBe(false);
-  expect(r.error).toMatch(/subject is required/);
+  expect(r.error).toBe("subject is required (the replied-to email has no subject)");
   expect(f).not.toHaveBeenCalled();
 });
 
@@ -196,7 +210,8 @@ test("missing recipient or subject is rejected before calling the provider", asy
   const env = envWith({ resend: true });
 
   expect((await sendEmail(env, "me@my.dev", { subject: "s", text: "b" })).error).toMatch(/to is required/);
-  expect((await sendEmail(env, "me@my.dev", { to: ["a@x.com"], text: "b" })).error).toMatch(/subject is required/);
+  // A plain send must not be told that some replied-to email lacked a subject.
+  expect((await sendEmail(env, "me@my.dev", { to: ["a@x.com"], text: "b" })).error).toBe("subject is required");
   expect(f).not.toHaveBeenCalled();
 });
 

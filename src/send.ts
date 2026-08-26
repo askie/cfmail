@@ -78,7 +78,7 @@ async function buildEnvelope(
   env: Env,
   req: SendRequest,
   userEmail?: string
-): Promise<{ env_: Envelope } | { error: string }> {
+): Promise<{ envelope: Envelope } | { error: string }> {
   let to = dedupe(req.to ?? []);
   let subject = req.subject?.trim();
   const headers: Record<string, string> = {};
@@ -105,12 +105,18 @@ async function buildEnvelope(
   }
 
   if (!to.length) return { error: "to is required (or pass in_reply_to)" };
-  if (!subject) return { error: "subject is required (the replied-to email has no subject)" };
+  if (!subject) {
+    return {
+      error: req.in_reply_to
+        ? "subject is required (the replied-to email has no subject)"
+        : "subject is required",
+    };
+  }
 
   const cc = dedupe(req.cc ?? []);
   if (to.length + cc.length > 50) return { error: "at most 50 recipients across to and cc" };
 
-  return { env_: { to, cc, subject, headers } };
+  return { envelope: { to, cc, subject, headers } };
 }
 
 async function viaResend(apiKey: string, from: string, e: Envelope, req: SendRequest): Promise<SendOutcome> {
@@ -184,6 +190,6 @@ export async function sendEmail(
   if ("error" in built) return { ok: false, error: built.error };
 
   return apiKey
-    ? viaResend(apiKey, from, built.env_, req)
-    : viaCloudflare(env.EMAIL!, from, built.env_, req);
+    ? viaResend(apiKey, from, built.envelope, req)
+    : viaCloudflare(env.EMAIL!, from, built.envelope, req);
 }
