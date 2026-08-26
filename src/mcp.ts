@@ -110,7 +110,7 @@ export class EmailMCP extends McpAgent<Env> {
     // is bound to; the admin identity has no bound address and must pass `from`.
     this.server.tool(
       "send_email",
-      "Send an email via Resend (or the Cloudflare send_email binding when no Resend key is configured). Non-admin keys always send from their own bound address. Pass in_reply_to with a stored email id to reply in-thread (recipient, subject and threading headers are filled in automatically).",
+      "Send an email via Resend (or the Cloudflare send_email binding when no Resend key is configured). Non-admin keys always send from their own bound address. Pass in_reply_to with a stored email id to reply in-thread (recipient, subject and threading headers are filled in automatically). Attach new files with attachments, or forward files from stored mail with forward_attachment_ids.",
       {
         to: z.array(z.string().email()).optional().describe("Recipients; optional when in_reply_to is given"),
         cc: z.array(z.string().email()).optional().describe("Cc recipients"),
@@ -118,12 +118,33 @@ export class EmailMCP extends McpAgent<Env> {
         text: z.string().describe("Plain-text body"),
         html: z.string().optional().describe("Optional HTML body"),
         in_reply_to: z.string().optional().describe("Email id to reply to"),
+        attachments: z
+          .array(
+            z.object({
+              filename: z.string().describe("File name shown to the recipient"),
+              content_base64: z.string().describe("File bytes, base64-encoded"),
+              content_type: z.string().optional().describe("MIME type, default application/octet-stream"),
+            })
+          )
+          .optional()
+          .describe("Files to attach"),
+        forward_attachment_ids: z
+          .array(z.string())
+          .optional()
+          .describe("Attachment ids from get_email, to forward files from stored mail without re-uploading them"),
         from: z.string().email().optional().describe("Admin only: the sending address"),
       },
-      async ({ to, cc, subject, text, html, in_reply_to, from }) => {
+      async ({ to, cc, subject, text, html, in_reply_to, attachments, forward_attachment_ids, from }) => {
         const sender = resolveSender(this.userEmail, from);
         if (!sender) return json({ ok: false, error: "from is required for the admin identity" });
-        return json(await sendEmail(this.env, sender, { to, cc, subject, text, html, in_reply_to }, this.userEmail));
+        return json(
+          await sendEmail(
+            this.env,
+            sender,
+            { to, cc, subject, text, html, in_reply_to, attachments, forward_attachment_ids },
+            this.userEmail
+          )
+        );
       }
     );
 

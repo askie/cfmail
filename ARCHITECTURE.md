@@ -46,6 +46,7 @@
 - **失败不抛异常**：D1 查询异常、网络异常、以及两家的错误码（Resend 的 `validation_error`、Cloudflare 的 `E_SENDER_NOT_VERIFIED` 等）都连同处置建议作为结果返回，方便 AI 直接读懂并转述给用户。
 - **两个后端都可缺省**：都没配时只有发信返回提示，收信与查询不受影响。
 - **迁移自愈**：`refs` 是首批部署之后才加的列。缺列会让每次 INSERT 失败、静默停掉收信，所以 `storeEmail` 前先跑一次幂等的 `ALTER TABLE ... ADD COLUMN`（每 isolate 一次，`duplicate column` 视为已完成，其他错误清缓存下次重试），不依赖运维记得手动迁移。
+- **附件两种来源**：调用方直接传 base64（AI 现生成的文件），或传 `forward_attachment_ids` 转发已存邮件里的附件——后者经 `getAttachment` 按调用方邮箱鉴权，转不了别人邮箱里的文件，且不用把字节在 AI 上下文里搬一遍。校验（base64 合法性、数量、总大小）按选定后端的上限在真正发之前做完：Cloudflare 5 MiB / Resend 40 MB，都是 32 个上限。
 - **线程链完整**：入站邮件的 `References` 头存进 `emails.refs`，回信时按 RFC 5322 §3.6.4 拼成「父邮件的引用链 + 父邮件的 Message-ID」，多轮回复不断线。链条超过 20 个时保留线程根（它是线程身份）加最近的 19 个祖先，和主流客户端一致。老数据 `refs` 为空时自动退化成只带父 Message-ID，不影响可用性。
 
 ## 收信路径 `email()`
