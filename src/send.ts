@@ -36,14 +36,11 @@ export interface SendOutcome {
 // of the whole message on the wire, where attachments travel base64-encoded and
 // are therefore 4/3 of their decoded size. Checking decoded bytes instead would
 // wave through a payload that the provider then rejects.
-const LIMITS: Record<
-  Provider,
-  { maxBytes: number; maxCount: number; label: string; unit: number; unitName: string }
-> = {
+const LIMITS: Record<Provider, { maxBytes: number; maxCount: number; unit: number; unitName: string }> = {
   // Resend documents "40MB after Base64 encoding"; decimal is the conservative
   // reading of an unqualified "MB".
-  resend: { maxBytes: 40 * 1000 * 1000, maxCount: 32, label: "40 MB", unit: 1000 * 1000, unitName: "MB" },
-  cloudflare: { maxBytes: 5 * 1024 * 1024, maxCount: 32, label: "5 MiB", unit: 1024 * 1024, unitName: "MiB" },
+  resend: { maxBytes: 40 * 1000 * 1000, maxCount: 32, unit: 1000 * 1000, unitName: "MB" },
+  cloudflare: { maxBytes: 5 * 1024 * 1024, maxCount: 32, unit: 1024 * 1024, unitName: "MiB" },
 };
 
 // Assembling the MIME message costs more than the payload itself: base64 is
@@ -51,6 +48,11 @@ const LIMITS: Record<
 // this margin a message sized right at the limit still gets rejected.
 const WRAP_FACTOR = 1.03;
 const PART_OVERHEAD = 512;
+
+// A non-ASCII body is transfer-encoded too (base64 or quoted-printable), which
+// costs up to a third again. Charged to every body: for CJK mail that is the
+// normal case, not an edge one.
+const BODY_ENCODING_FACTOR = 4 / 3;
 
 // A non-admin key always sends as the address it is bound to; a caller-supplied
 // `from` is only honoured for the admin identity, which has no bound address.
@@ -172,7 +174,8 @@ async function collectAttachments(
     });
   }
 
-  const { maxBytes, maxCount, label, unit, unitName } = LIMITS[provider];
+  const { maxBytes, maxCount, unit, unitName } = LIMITS[provider];
+  const label = `${maxBytes / unit} ${unitName}`;
   if (out.length > maxCount) {
     return { error: `at most ${maxCount} attachments (${provider})` };
   }
@@ -181,8 +184,7 @@ async function collectAttachments(
   // would otherwise reach the provider as the very rejection this check prevents.
   const wire =
     out.reduce((n, a) => n + Math.ceil(a.content_base64.length * WRAP_FACTOR) + PART_OVERHEAD, 0) +
-    utf8Bytes(req.text) +
-    utf8Bytes(req.html);
+    Math.ceil((utf8Bytes(req.text) + utf8Bytes(req.html)) * BODY_ENCODING_FACTOR);
   if (wire > maxBytes) {
     const size = (wire / unit).toFixed(1);
     return { error: `message is ~${size} ${unitName} encoded, over the ${label} limit (${provider})` };

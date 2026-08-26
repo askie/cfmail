@@ -433,6 +433,18 @@ test("an oversized body is caught even with no attachments at all", async () => 
   expect(cf).not.toHaveBeenCalled();
 });
 
+test("a CJK body is charged its transfer-encoded size", async () => {
+  const cf = vi.fn();
+  // 4 MiB of UTF-8 Chinese: under the raw 5 MiB limit, over it once encoded.
+  const r = await sendEmail(envWith({ cf }), "me@my.dev", {
+    to: ["a@x.com"], subject: "s", text: "中".repeat(Math.floor((4 * 1024 * 1024) / 3) ),
+  });
+
+  expect(r.ok).toBe(false);
+  expect(r.error).toMatch(/over the 5 MiB limit/);
+  expect(cf).not.toHaveBeenCalled();
+});
+
 test("Resend's oversize message is reported in the same unit as its limit", async () => {
   const f = mockFetch(200, { id: "x" });
   const r = await sendEmail(envWith({ resend: true }), "me@my.dev", {
