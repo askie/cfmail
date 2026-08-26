@@ -311,6 +311,19 @@ set_webhook(url="https://你的接收地址")
 
 ---
 
+## 从旧版本升级
+
+如果你的服务是在「发信」功能之前部署的，数据库需要补一列（用来记住邮件的会话线索，让多轮回信不断线）：
+
+```bash
+npx wrangler d1 execute email_db --remote -c wrangler.local.jsonc \
+  --command "ALTER TABLE emails ADD COLUMN refs TEXT"
+```
+
+跑一次就行，报「duplicate column」说明已经加过了，可以忽略。不加也能用，只是对**升级前收到的**老邮件回信时，会话线索会短一截。
+
+---
+
 ## 日常维护
 
 ```bash

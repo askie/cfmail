@@ -43,6 +43,7 @@ export async function parseRaw(raw: ArrayBuffer | Uint8Array | string): Promise<
 
   return {
     msg_id: email.messageId ?? null,
+    refs: email.references ?? null,
     from_addr: email.from?.address ?? null,
     from_name: email.from?.name || null,
     to_addr: joinAddrs(email.to),

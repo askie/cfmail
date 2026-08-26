@@ -53,6 +53,7 @@ export async function storeEmail(
   const row: EmailRow = {
     id,
     msg_id: parsed.msg_id,
+    refs: parsed.refs,
     from_addr: parsed.from_addr,
     from_name: parsed.from_name,
     to_addr: parsed.to_addr,
@@ -70,11 +71,11 @@ export async function storeEmail(
   const stmts: D1PreparedStatement[] = [
     env.DB.prepare(
       `INSERT INTO emails
-         (id, msg_id, from_addr, from_name, to_addr, cc_addr, subject, date,
+         (id, msg_id, refs, from_addr, from_name, to_addr, cc_addr, subject, date,
           text_body, html_key, raw_key, size, has_attachments, received_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
-      row.id, row.msg_id, row.from_addr, row.from_name, row.to_addr, row.cc_addr,
+      row.id, row.msg_id, row.refs, row.from_addr, row.from_name, row.to_addr, row.cc_addr,
       row.subject, row.date, row.text_body, row.html_key, row.raw_key, row.size,
       row.has_attachments, row.received_at
     ),
@@ -248,6 +249,7 @@ export async function getEmail(env: Env, id: string, includeHtml = false, userEm
   return {
     id: r.id,
     msg_id: r.msg_id,
+    refs: r.refs,
     from: r.from_addr,
     from_name: r.from_name,
     to: r.to_addr,

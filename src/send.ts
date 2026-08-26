@@ -65,6 +65,21 @@ function safeMsgId(id: string | null): string | null {
   return id && /^<[^<>\s]+>$/.test(id) ? id : null;
 }
 
+// Long threads would otherwise grow References without bound. Mail clients keep
+// the root (it identifies the thread) plus the most recent ancestors; so do we.
+const REF_LIMIT = 20;
+
+// RFC 5322 §3.6.4: the reply's References is the parent's References followed by
+// the parent's Message-ID. Only well-formed <...> tokens survive.
+function buildReferences(parentRefs: string | null, parentMsgId: string | null): string[] {
+  const chain: string[] = parentRefs?.match(/<[^<>\s]+>/g) ?? [];
+  if (parentMsgId) chain.push(parentMsgId);
+
+  const unique = [...new Set(chain)];
+  if (unique.length <= REF_LIMIT) return unique;
+  return [unique[0], ...unique.slice(unique.length - (REF_LIMIT - 1))];
+}
+
 interface Envelope {
   to: string[];
   cc: string[];
@@ -98,10 +113,10 @@ async function buildEnvelope(
     if (!subject && orig) subject = /^re:/i.test(orig) ? orig : `Re: ${orig}`;
 
     const msgId = safeMsgId(src.msg_id);
-    if (msgId) {
-      headers["In-Reply-To"] = msgId;
-      headers["References"] = msgId;
-    }
+    if (msgId) headers["In-Reply-To"] = msgId;
+
+    const refs = buildReferences(src.refs, msgId);
+    if (refs.length) headers["References"] = refs.join(" ");
   }
 
   if (!to.length) return { error: "to is required (or pass in_reply_to)" };
