@@ -305,16 +305,41 @@ test("an inline attachment is sent to Resend as base64 content", async () => {
   ]);
 });
 
-test("the Cloudflare backend gets the type and disposition it requires", async () => {
+test("the Cloudflare backend gets decoded bytes, not the base64 text", async () => {
   const cf = vi.fn().mockResolvedValue({ messageId: "cf-a1" });
   await sendEmail(envWith({ cf }), "me@my.dev", {
     to: ["a@x.com"], subject: "s", text: "b",
     attachments: [{ filename: "note.bin", content_base64: HELLO }],
   });
 
-  expect(cf.mock.calls[0][0].attachments).toEqual([
-    { filename: "note.bin", content: HELLO, type: "application/octet-stream", disposition: "attachment" },
-  ]);
+  const [sent] = cf.mock.calls[0][0].attachments;
+  expect(sent).toMatchObject({
+    filename: "note.bin", type: "application/octet-stream", disposition: "attachment",
+  });
+  // The binding encodes for us. Passing base64 through would make the encoded
+  // text the file's contents — caught in real sending, not by an earlier mock.
+  expect(sent.content).toBeInstanceOf(Uint8Array);
+  expect(new TextDecoder().decode(sent.content)).toBe("hello");
+});
+
+test("Resend still gets the base64 text, which is what its API expects", async () => {
+  const f = mockFetch(200, { id: "re-enc" });
+  await sendEmail(envWith({ resend: true }), "me@my.dev", {
+    to: ["a@x.com"], subject: "s", text: "b",
+    attachments: [{ filename: "note.bin", content_base64: HELLO }],
+  });
+
+  expect(JSON.parse((f.mock.calls[0][1] as any).body).attachments[0].content).toBe(HELLO);
+});
+
+test("an empty attachment decodes to zero bytes for Cloudflare", async () => {
+  const cf = vi.fn().mockResolvedValue({ messageId: "cf-a2" });
+  await sendEmail(envWith({ cf }), "me@my.dev", {
+    to: ["a@x.com"], subject: "s", text: "b",
+    attachments: [{ filename: "empty.txt", content_base64: "" }],
+  });
+
+  expect(cf.mock.calls[0][0].attachments[0].content).toEqual(new Uint8Array(0));
 });
 
 test("no attachments means the field is omitted entirely", async () => {
