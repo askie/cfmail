@@ -311,6 +311,25 @@ set_webhook(url="https://你的接收地址")
 
 ---
 
+## 从旧版本升级
+
+如果你的服务是在「发信」功能之前部署的，数据库要补一列 `refs`（用来记住邮件的会话线索，让多轮回信不断线）。
+
+**这一步服务会自己做**：新版本第一次处理请求时会自动加上这列，你什么都不用管。
+
+想手动确认或提前跑一遍也可以：
+
+```bash
+npx wrangler d1 execute email_db --remote -c wrangler.local.jsonc \
+  --command "ALTER TABLE emails ADD COLUMN refs TEXT"
+```
+
+报「duplicate column」说明已经加过了，忽略即可。
+
+> 升级**之前**收到的老邮件没有这个字段，对它们回信时会话线索会短一截（只带上一封的标识），不影响能不能送达。升级之后收到的邮件都是完整的。
+
+---
+
 ## 日常维护
 
 ```bash

@@ -45,7 +45,8 @@
 - **回信复用收信数据**：`in_reply_to` 传一个已存邮件 id，经 `getEmail` 按调用方邮箱鉴权后取出原件，推导收件人、`Re:` 主题以及 `In-Reply-To`/`References` 头。鉴权走的是查询路径同一把锁，因此回不了别人的信。入站 Message-ID 是攻击者可控文本，只有形如 `<...>` 且不含空白的才会被复制进出信头。
 - **失败不抛异常**：D1 查询异常、网络异常、以及两家的错误码（Resend 的 `validation_error`、Cloudflare 的 `E_SENDER_NOT_VERIFIED` 等）都连同处置建议作为结果返回，方便 AI 直接读懂并转述给用户。
 - **两个后端都可缺省**：都没配时只有发信返回提示，收信与查询不受影响。
-- **已知取舍**：`References` 只带父邮件的 Message-ID，没有拼接完整引用链；多轮回复后个别客户端可能断线程，按 KISS 暂不处理。
+- **迁移自愈**：`refs` 是首批部署之后才加的列。缺列会让每次 INSERT 失败、静默停掉收信，所以 `storeEmail` 前先跑一次幂等的 `ALTER TABLE ... ADD COLUMN`（每 isolate 一次，`duplicate column` 视为已完成，其他错误清缓存下次重试），不依赖运维记得手动迁移。
+- **线程链完整**：入站邮件的 `References` 头存进 `emails.refs`，回信时按 RFC 5322 §3.6.4 拼成「父邮件的引用链 + 父邮件的 Message-ID」，多轮回复不断线。链条超过 20 个时保留线程根（它是线程身份）加最近的 19 个祖先，和主流客户端一致。老数据 `refs` 为空时自动退化成只带父 Message-ID，不影响可用性。
 
 ## 收信路径 `email()`
 
@@ -125,7 +126,7 @@ src/
   index.ts    入口：email() 收信 + fetch() 路由与鉴权，导出 EmailMCP
   email.ts    收信编排：读流→解析→落库→推送
   parse.ts    纯解析：原始字节 → ParsedEmail（postal-mime）
-  store.ts    D1/R2 读写：存邮件 + list/search/get/stats
+  store.ts    D1/R2 读写：存邮件 + list/search/get/stats + 幂等列迁移
   config.ts   D1 键值配置（webhook 地址）
   push.ts     webhook 投递
   send.ts     发信：Resend/CF 双后端、组装 envelope、回信线程头、错误码转提示

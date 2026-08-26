@@ -2,6 +2,7 @@
 CREATE TABLE IF NOT EXISTS emails (
   id              TEXT PRIMARY KEY,   -- uuid
   msg_id          TEXT,               -- original Message-ID header
+  refs            TEXT,               -- original References header, for reply threading
   from_addr       TEXT,
   from_name       TEXT,
   to_addr         TEXT,               -- comma-joined recipients
@@ -39,6 +40,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS emails_fts USING fts5(
   text_body,
   tokenize = 'trigram'
 );
+
+-- Migrating a database created before `refs` existed (safe to fail if present):
+--   ALTER TABLE emails ADD COLUMN refs TEXT;
 
 -- Key/value config (e.g. webhook_url), settable via MCP tools.
 CREATE TABLE IF NOT EXISTS config (

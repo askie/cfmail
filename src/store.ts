@@ -10,12 +10,42 @@ function snippet(text: string | null, len = 200): string | null {
   return t.length > len ? t.slice(0, len) + "…" : t;
 }
 
+// `refs` was added after the first deployments. A missing column would fail every
+// INSERT and silently stop mail from arriving, so the column is added on demand
+// instead of relying on the operator remembering to run the migration. Runs once
+// per isolate; a genuine failure clears the cache so the next message retries.
+let schemaReady: Promise<void> | null = null;
+
+// Deliberately swallows a genuine failure rather than rethrowing: the message
+// still reaches the D1 batch and fails there. The cost is a few orphaned R2
+// objects when the column really is missing (the retry writes fresh keys); the
+// benefit is that a transient ALTER hiccup on an already-migrated database does
+// not reject mail. If this is ever flipped to rethrow, the "retried on the next
+// message" test below asserts the swallow, and must be updated with it.
+export function ensureSchema(env: Env): Promise<void> {
+  schemaReady ??= env.DB.prepare(`ALTER TABLE emails ADD COLUMN refs TEXT`)
+    .run()
+    .then(() => undefined)
+    .catch((e) => {
+      // "duplicate column" just means someone (or an earlier isolate) got there first.
+      if (!/duplicate column/i.test(String(e?.message ?? e))) schemaReady = null;
+    });
+  return schemaReady;
+}
+
+// Test seam: forget whether the migration already ran in this isolate.
+export function _resetSchemaCacheForTests(): void {
+  schemaReady = null;
+}
+
 // Persist a parsed email: raw + html + attachments -> R2, metadata + FTS + attachment rows -> D1.
 export async function storeEmail(
   env: Env,
   rawBuf: ArrayBuffer,
   parsed: ParsedEmail
 ): Promise<EmailRow> {
+  await ensureSchema(env);
+
   const id = crypto.randomUUID();
   const received_at = Date.now();
   const date = parsed.date ?? received_at;
@@ -53,6 +83,7 @@ export async function storeEmail(
   const row: EmailRow = {
     id,
     msg_id: parsed.msg_id,
+    refs: parsed.refs,
     from_addr: parsed.from_addr,
     from_name: parsed.from_name,
     to_addr: parsed.to_addr,
@@ -70,11 +101,11 @@ export async function storeEmail(
   const stmts: D1PreparedStatement[] = [
     env.DB.prepare(
       `INSERT INTO emails
-         (id, msg_id, from_addr, from_name, to_addr, cc_addr, subject, date,
+         (id, msg_id, refs, from_addr, from_name, to_addr, cc_addr, subject, date,
           text_body, html_key, raw_key, size, has_attachments, received_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
     ).bind(
-      row.id, row.msg_id, row.from_addr, row.from_name, row.to_addr, row.cc_addr,
+      row.id, row.msg_id, row.refs, row.from_addr, row.from_name, row.to_addr, row.cc_addr,
       row.subject, row.date, row.text_body, row.html_key, row.raw_key, row.size,
       row.has_attachments, row.received_at
     ),
@@ -248,6 +279,7 @@ export async function getEmail(env: Env, id: string, includeHtml = false, userEm
   return {
     id: r.id,
     msg_id: r.msg_id,
+    refs: r.refs,
     from: r.from_addr,
     from_name: r.from_name,
     to: r.to_addr,

@@ -24,6 +24,33 @@ const RAW = [
   "",
 ].join("\r\n");
 
+const THREADED = [
+  "From: Bob <bob@example.com>",
+  "To: inbox@example.com",
+  "Subject: Re: Test Invoice 2026",
+  "Message-ID: <reply-2@example.com>",
+  "In-Reply-To: <test-123@example.com>",
+  "References: <root-1@example.com>",
+  "\t<test-123@example.com>",
+  "",
+  "sure, sending it over.",
+  "",
+].join("\r\n");
+
+test("parseRaw keeps the References header, unfolding continuation lines", async () => {
+  const parsed = await parseRaw(THREADED);
+
+  expect(parsed.msg_id).toContain("reply-2@example.com");
+  expect(parsed.refs).toContain("<root-1@example.com>");
+  expect(parsed.refs).toContain("<test-123@example.com>");
+  // Folded onto two source lines, but one logical header value.
+  expect(parsed.refs).not.toContain("\r\n");
+});
+
+test("parseRaw returns null refs for a message that starts a thread", async () => {
+  expect((await parseRaw(RAW)).refs).toBeNull();
+});
+
 test("parseRaw extracts headers, Chinese body, and attachment", async () => {
   const parsed = await parseRaw(RAW);
 

@@ -26,7 +26,7 @@ function mockFetch(status: number, body: unknown) {
 }
 
 const inboundRow = (over: Record<string, unknown> = {}) => ({
-  id: "e1", msg_id: "<orig@x.com>", from_addr: "boss@x.com", to_addr: "me@my.dev",
+  id: "e1", msg_id: "<orig@x.com>", refs: null, from_addr: "boss@x.com", to_addr: "me@my.dev",
   cc_addr: null, subject: "Report", date: 0, received_at: 0, text_body: null,
   html_key: null, has_attachments: 0, ...over,
 });
@@ -152,6 +152,48 @@ test("reply derives recipient, subject and threading headers from the source ema
     subject: "Re: Report",
     headers: { "In-Reply-To": "<orig@x.com>", References: "<orig@x.com>" },
   });
+});
+
+async function replyHeaders(row: Record<string, unknown>) {
+  const f = mockFetch(200, { id: "re-x" });
+  const env = envWith({ resend: true, row: inboundRow(row) });
+  await sendEmail(env, "me@my.dev", { text: "ok", in_reply_to: "e1" }, "me@my.dev");
+  return JSON.parse((f.mock.calls[0][1] as any).body).headers ?? {};
+}
+
+test("References continues the parent's chain, ending with the parent's Message-ID", async () => {
+  const h = await replyHeaders({ refs: "<root@x.com> <mid@x.com>" });
+
+  expect(h["References"]).toBe("<root@x.com> <mid@x.com> <orig@x.com>");
+  expect(h["In-Reply-To"]).toBe("<orig@x.com>");
+});
+
+test("a Message-ID already present in the parent's chain is not repeated", async () => {
+  const h = await replyHeaders({ refs: "<root@x.com> <orig@x.com>" });
+  expect(h["References"]).toBe("<root@x.com> <orig@x.com>");
+});
+
+test("a long chain keeps the thread root and the most recent ancestors", async () => {
+  const chain = Array.from({ length: 40 }, (_, i) => `<a${i}@x.com>`);
+  const h = await replyHeaders({ refs: chain.join(" ") });
+  const kept = h["References"].split(" ");
+
+  expect(kept).toHaveLength(20);
+  expect(kept[0]).toBe("<a0@x.com>");                       // thread root survives
+  expect(kept[kept.length - 1]).toBe("<orig@x.com>");        // parent is last
+  expect(kept[1]).toBe("<a22@x.com>");                       // the middle is dropped
+});
+
+test("malformed tokens in the parent's chain are dropped", async () => {
+  const h = await replyHeaders({ refs: "not-an-id <good@x.com> <bad id@x.com>" });
+  expect(h["References"]).toBe("<good@x.com> <orig@x.com>");
+});
+
+test("a malformed parent Message-ID drops In-Reply-To but keeps the inherited chain", async () => {
+  const h = await replyHeaders({ msg_id: "junk", refs: "<root@x.com>" });
+
+  expect(h["In-Reply-To"]).toBeUndefined();
+  expect(h["References"]).toBe("<root@x.com>");
 });
 
 test("reply does not double-prefix an existing Re: subject", async () => {

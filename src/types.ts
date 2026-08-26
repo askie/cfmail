@@ -24,6 +24,7 @@ export interface StoredAttachment {
 export interface EmailRow {
   id: string;
   msg_id: string | null;
+  refs: string | null;
   from_addr: string | null;
   from_name: string | null;
   to_addr: string | null;
@@ -41,6 +42,7 @@ export interface EmailRow {
 // Result of parsing a raw message, before persistence.
 export interface ParsedEmail {
   msg_id: string | null;
+  refs: string | null;
   from_addr: string | null;
   from_name: string | null;
   to_addr: string | null;
