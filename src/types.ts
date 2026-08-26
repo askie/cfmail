@@ -3,6 +3,11 @@ export interface Env {
   BUCKET: R2Bucket;
   MCP_OBJECT: DurableObjectNamespace;
   MCP_TOKEN: string;
+  // Default sending backend: `wrangler secret put RESEND_API_KEY`.
+  RESEND_API_KEY?: string;
+  // Fallback sending backend; present only when the send_email binding is
+  // configured in wrangler. Used when no Resend key is set.
+  EMAIL?: SendEmail;
 }
 
 // One stored attachment (R2 + a row in `attachments`).

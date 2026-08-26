@@ -20,6 +20,7 @@
 - 📥 **自动收信**：发到你域名下任意地址的邮件，全部收下并存档（正文 + 附件都留着）。
 - 🔎 **AI 可查询**：AI 能搜索关键词、按发件人/时间筛选、读邮件全文、下载附件。
 - 🈶 **中文也能搜**：中文主题和正文都能搜到。
+- 📤 **能发信、能回信**：AI 可以用你的地址发邮件（走 Resend，也可用 Cloudflare 自带发信），还能对着某封邮件直接回复（自动带上原主题和会话线索）。
 - 🔔 **新邮件提醒（可选）**：每来一封新邮件，可以自动通知到你指定的地址。
 - 🔐 **有访问密码**：接口由一个密钥保护，只有持密钥的人/AI 才能查。
 
@@ -137,7 +138,7 @@ claude mcp add --transport http email https://你的子域名/mcp \
 - 「打开第一封，把附件下载下来」
 - 「上个月有没有来自某某的邮件」
 
-> 背后 AI 会用到这些能力：搜索 `search_emails`、列表 `list_emails`、读单封 `get_email`、取附件 `get_attachment`、统计 `stats`，以及设置新邮件提醒 `set_webhook` / 查看 `get_webhook`。你不用记这些名字，AI 会自己选。
+> 背后 AI 会用到这些能力：搜索 `search_emails`、列表 `list_emails`、读单封 `get_email`、取附件 `get_attachment`、统计 `stats`、发信 `send_email`，以及设置新邮件提醒 `set_webhook` / 查看 `get_webhook`。你不用记这些名字，AI 会自己选。
 
 ---
 
@@ -232,6 +233,69 @@ node scripts/fetch-unread.mjs
 
 > 还没接 AI 也能验证：`npx wrangler tail cloudflare-email` 看是否收到，或直接查数据库：
 > `npx wrangler d1 execute email_db --remote --command "SELECT subject,from_addr FROM emails ORDER BY date DESC LIMIT 3"`
+
+---
+
+## 发邮件（可选）
+
+服务不只收信，也能用你的地址把邮件发出去。接好之后直接对 AI 说：
+
+- 「用我的邮箱给 xxx@xx.com 发一封邮件，主题是……」
+- 「回复刚才那封发票邮件，告诉对方已收到」——会自动带上原主题（`Re: …`）和会话线索，收件人那边能看到是同一串对话。
+
+### 走哪条通道
+
+有两个后端，**默认用 Resend**，没配 Resend 时自动退回 Cloudflare 自带的发信：
+
+| | Resend（默认，推荐） | Cloudflare Email Sending（回退） |
+| --- | --- | --- |
+| 发给外部收件人 | 免费档 3000 封/月、100 封/天 | 要 Workers 付费计划 + 域名 onboarding |
+| 发给自己已验证的地址 | 同上，计入额度 | 免费，不计配额 |
+| 退信/打开率统计 | 有面板 | 没有 |
+| 怎么启用 | 设一个 secret（见下） | 配 `send_email` binding |
+
+两个都没配的话，发信会返回一句「没有可用的发信后端」并告诉你怎么配，收信和查询不受影响。
+
+### 配置 Resend（约 5 分钟）
+
+**1. 在 [Resend](https://resend.com) 注册，添加你的域名**——直接用根域 `yourdomain.com` 就行，不用退到子域。
+
+**2. 在 Cloudflare DNS 里加它给的三条记录：**
+
+| 类型 | 名称 | 值 | 代理 |
+| --- | --- | --- | --- |
+| MX | `send` | Resend 给的地址，优先级 10 | — |
+| TXT | `send` | `v=spf1 include:amazonses.com ~all` | — |
+| TXT | `resend._domainkey` | Resend 给的 DKIM 公钥 | **DNS Only（关橙云）** |
+
+> **不会和收信打架**：这条 MX 挂在 `send.yourdomain.com` 上（Resend 用它收退信），根域的 MX 仍然归 Email Routing。所以你可以用 `me@yourdomain.com` 发信，对方回过来又被这个服务收下——收发闭环在同一个地址上。
+>
+> DKIM 那条一定要关橙云代理，开着会验不过。
+
+**3. 把 key 设成 secret：**
+
+```bash
+npx wrangler secret put RESEND_API_KEY -c wrangler.local.jsonc
+```
+
+设完就能发了。
+
+### 想用 Cloudflare 自带的发信
+
+不设 `RESEND_API_KEY`，改成确认 `wrangler.local.jsonc` 里有这一行（`wrangler.jsonc` 模板里已经带了）：
+
+```jsonc
+"send_email": [{ "name": "EMAIL" }],
+```
+
+然后去 Cloudflare 后台 Email → Email Sending 给域名做一次 onboarding。只发给自己在 Email Routing → Destination addresses 里验证过的地址的话，这步可以跳过，直接就能发且免费。
+
+### 发件人是谁
+
+- 用普通 Key 的用户：**只能用自己 Key 绑定的那个地址**发信，改不了，也发不出别人的地址。
+- 管理员：没有绑定地址，发信时要自己指定 `from`。
+
+发失败时工具会把错误码和该怎么处理一并返回，AI 能直接读懂告诉你。比如 `validation_error` 一般是域名还没在 Resend 验证通过。
 
 ---
 

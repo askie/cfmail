@@ -20,11 +20,32 @@
                         │                                                                                      │
    AI 客户端 ──HTTP───▶  fetch() /mcp  ── Bearer 校验 ──▶ McpAgent(Streamable HTTP, Durable Object)             │
    (Claude 等)          │                                   工具: search/list/get_email/get_attachment/stats  │
-                        │                                        get_webhook/set_webhook                       │
+                        │                                        send_email / get_webhook/set_webhook          │
+                        │                                             │                                        │
+                        │                       Resend API (默认) / send_email binding (回退) ──▶ 收件方         │
                         └──────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-两条路径共用同一套 D1 + R2 存储，互不耦合：收信只写，查询只读（webhook 配置除外）。
+两条路径共用同一套 D1 + R2 存储，互不耦合：收信只写，查询只读（webhook 配置与发信除外）。
+
+## 发信路径 `send_email`
+
+两个后端，按配置自动择一，同一套上层逻辑：
+
+| 优先级 | 后端 | 启用条件 |
+|---|---|---|
+| 1（默认） | Resend HTTP API | 配了 `RESEND_API_KEY` secret |
+| 2（回退） | Cloudflare Email Sending 的 `send_email` binding | 没配 Resend key，但有 `EMAIL` binding |
+
+选择逻辑只有一处（`sendEmail` 入口的 key 判空），没有 provider 注册表或工厂；收件人推导、鉴权、校验都在 `buildEnvelope` 里做完，两个后端只负责把同一个 envelope 发出去。结果里带 `provider` 字段，调用方知道实际走的是哪条。
+
+**为什么 Resend 和 Email Routing 不打架**：Resend 要求的 MX 记录挂在 `send` 子域上（收退信用），根域 MX 仍归 Email Routing。因此可以直接验证根域，`From` 用根域地址，对方回信又被 Email Routing 收回来，收发闭环在同一个地址上。
+
+- **发件人不可伪造**：`resolveSender` 里普通 Key 的 `from` 恒等于 Key 绑定的地址，请求里传的 `from` 会被忽略；只有管理员身份（无绑定地址）需要显式指定 `from`。
+- **回信复用收信数据**：`in_reply_to` 传一个已存邮件 id，经 `getEmail` 按调用方邮箱鉴权后取出原件，推导收件人、`Re:` 主题以及 `In-Reply-To`/`References` 头。鉴权走的是查询路径同一把锁，因此回不了别人的信。入站 Message-ID 是攻击者可控文本，只有形如 `<...>` 且不含空白的才会被复制进出信头。
+- **失败不抛异常**：D1 查询异常、网络异常、以及两家的错误码（Resend 的 `validation_error`、Cloudflare 的 `E_SENDER_NOT_VERIFIED` 等）都连同处置建议作为结果返回，方便 AI 直接读懂并转述给用户。
+- **两个后端都可缺省**：都没配时只有发信返回提示，收信与查询不受影响。
+- **已知取舍**：`References` 只带父邮件的 Message-ID，没有拼接完整引用链；多轮回复后个别客户端可能断线程，按 KISS 暂不处理。
 
 ## 收信路径 `email()`
 
@@ -94,6 +115,8 @@ MCP 协议本身支持服务端→客户端的订阅推送，但只在客户端�
 | R2 | `email-store`（binding `BUCKET`） |
 | Secret | `MCP_TOKEN` |
 | Email Routing | 你的域名，catch-all → worker `cloudflare-email` |
+| 发信（默认） | Resend；secret `RESEND_API_KEY`，域名在 Resend 验证（MX 在 `send` 子域） |
+| 发信（回退） | Cloudflare Email Sending，`send_email` binding `EMAIL`；发任意外部地址需给域名做 sending onboarding |
 
 ## 目录结构
 
@@ -105,7 +128,8 @@ src/
   store.ts    D1/R2 读写：存邮件 + list/search/get/stats
   config.ts   D1 键值配置（webhook 地址）
   push.ts     webhook 投递
-  mcp.ts      McpAgent + 7 个 MCP 工具
+  send.ts     发信：Resend/CF 双后端、组装 envelope、回信线程头、错误码转提示
+  mcp.ts      McpAgent + 8 个 MCP 工具
   types.ts    Env 与数据类型
 schema.sql    D1 建表
 wrangler.jsonc 部署配置与绑定

@@ -23,6 +23,11 @@
     }
   ],
 
+  // Email Sending. Sending to destination addresses already verified in your
+  // account works out of the box; reaching arbitrary recipients additionally
+  // requires onboarding the sending domain (Email -> Email Sending).
+  "send_email": [{ "name": "EMAIL" }],
+
   // R2: raw .eml, html bodies, attachments.
   "r2_buckets": [
     { "binding": "BUCKET", "bucket_name": "email-store" }
