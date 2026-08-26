@@ -178,7 +178,7 @@ node scripts/admin.mjs create-key --email alice@你的域名
 
 其它管理命令：`list-keys`（看已开通的邮箱）、`delete-key --email ...`（吊销）、`get-webhook` / `set-webhook --url ...`（新邮件提醒）。
 
-### 第 3 步（用户）：用 Key 收信
+### 第 3 步（用户）：用 Key 收发邮件
 
 ```bash
 cd .claude/skills/email-inbox
@@ -186,9 +186,15 @@ cd .claude/skills/email-inbox
 node scripts/setup.mjs --base https://你的子域名 --email alice@你的域名 --key <你的Key>
 # 收取最新未读邮件（首次给最近的存量，之后只给新到的）
 node scripts/fetch-unread.mjs
+# 发一封邮件
+node scripts/send-email.mjs --to someone@example.com --subject "标题" --text "正文"
+# 回复某封邮件（收件人、主题、会话线索自动推导）
+node scripts/send-email.mjs --reply <邮件id> --text "回复内容"
 ```
 
-配好之后，对 Agent 说「看看有没有新邮件」「找一下验证码邮件」，它就会自己跑 `fetch-unread`，并按需用 `get_email` / `get_attachment` 读全文、取附件。
+配好之后，对 Agent 说「看看有没有新邮件」「找一下验证码邮件」「回复一下那封发票邮件」，它就会自己选合适的脚本，按需读全文、取附件、回信。
+
+> 发信用的是 Key 绑定的那个地址，改不了——服务端强制的，所以拿到 Key 的人发不出别人的地址。
 
 ### 配置存哪、怎么改
 
@@ -197,6 +203,7 @@ node scripts/fetch-unread.mjs
   - 管理端：`~/.config/email-admin/config.json`
 - 可用环境变量覆盖文件，便于多账号或脚本化：`EMAIL_INBOX_BASE` / `EMAIL_INBOX_EMAIL` / `EMAIL_INBOX_KEY` / `EMAIL_INBOX_CONFIG`（管理端同理 `EMAIL_ADMIN_*`）。
 - 「未读」由本机游标记录（服务端不分已读/未读）：`fetch-unread.mjs --peek` 只看不标记、`--all` 看最近全部、`--reset` 全部标为已读、`--json` 机器可读输出。
+- 发信：`send-email.mjs --attach ./file.pdf` 附上本地文件、`--forward-attachment <附件id>` 直接转发收到的附件（不用先下载）、`--text-file` 从文件读长正文。
 
 > 安全：`email-admin` 用的是最高权限的管理员密钥，**只配在管理员自己机器上，绝不要交给普通用户**；普通用户只该拿到 `email-inbox` 用的、绑定到自己邮箱的 Key。
 
