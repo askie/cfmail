@@ -321,3 +321,34 @@ test("nested lists keep the indentation that expresses their nesting", () => {
 test("a blockquote survives as one", () => {
   expect(md("<blockquote><p>引用内容</p></blockquote>")).toBe("> 引用内容");
 });
+
+// --- Markup that carries behaviour rather than text. ---------------------------
+
+test.each([
+  ["svg with a handler", "<svg onload=alert(1)><text>x</text></svg>", "x"],
+  ["a form", "<form action=javascript:alert(1)><input value=x></form>", ""],
+  ["meta refresh", '<meta http-equiv="refresh" content="0;url=javascript:alert(1)">', ""],
+  ["a style attribute", '<p style="background:url(javascript:alert(1))">文字</p>', "文字"],
+  ["an iframe", '<iframe src="javascript:alert(1)"></iframe>', ""],
+])("%s survives only as its text, if that", (_name, html, expected) => {
+  expect(md(html)).toBe(expected);
+});
+
+test("a base tag cannot re-point a relative link at a scheme", () => {
+  // The document is parsed in isolation, so base is inert; the relative target
+  // is encoded and stays relative.
+  expect(md('<base href="javascript:"><a href="alert(1)">点</a>')).toBe("[点](alert%281%29)");
+});
+
+test("characters turndown leaves alone cannot form anything clickable", () => {
+  // Pipes, tildes and the like shape a table or a strikethrough at most.
+  expect(md("<p>| a | b |</p>")).toBe("| a | b |");
+  expect(md("<p>~~删除~~</p>")).toBe("~~删除~~");
+  // Line-leading markers are turndown's job, and it does escape them.
+  expect(md("<p>&gt; 伪引用</p>")).toBe("\\> 伪引用");
+  expect(md("<p># 伪标题</p>")).toBe("\\# 伪标题");
+});
+
+test("an HTML comment written as text cannot reopen as markup", () => {
+  expect(md("<p>a &lt;!-- b --&gt; c</p>")).toBe("a \\<!-- b --> c");
+});
