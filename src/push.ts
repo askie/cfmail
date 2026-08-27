@@ -29,13 +29,21 @@ function snippet(text: string | null, len: number): string | null {
 // what arrived and can fetch it with `cfmail attachment <id>`.
 function attachmentLines(files: StoredAttachment[]): string[] {
   if (!files.length) return [];
+  // Rounding is applied before the threshold check, so 1023.6 KB reads as
+  // "1.0 MB" rather than the odd-looking "1024 KB".
   const size = (n: number) =>
-    n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB`
+    Math.round(n / 1024) >= 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB`
     : n >= 1024 ? `${Math.round(n / 1024)} KB`
     : `${n} B`;
 
   const shown = files.slice(0, 10);
-  const lines = shown.map((f) => `  · ${f.filename || "(未命名)"}  ${size(f.size ?? 0)}`);
+  // The filename comes straight from the sender. Subject and body are already
+  // folded by `snippet`; without the same treatment here a crafted name could
+  // inject newlines and forge extra lines in the chat message — or simply run to
+  // thousands of characters.
+  const lines = shown.map(
+    (f) => `  · ${snippet(f.filename, 80) || "(未命名)"}  ${size(f.size ?? 0)}`
+  );
   if (files.length > shown.length) lines.push(`  · …还有 ${files.length - shown.length} 个`);
   return [`附件 ${files.length} 个:`, ...lines];
 }
@@ -46,8 +54,12 @@ function grixBody(row: EmailRow, attachments: StoredAttachment[]) {
   const sender = row.from_name && row.from_addr
     ? `${row.from_name} <${row.from_addr}>`
     : row.from_name || row.from_addr || "(未知发件人)";
+  // Derive the header from the list actually being shown: a caller passing
+  // has_attachments=1 with no list would otherwise announce attachments that
+  // the message then fails to name.
+  const hasFiles = attachments.length > 0 || !!row.has_attachments;
   const lines = [
-    `📬 新邮件${row.has_attachments ? "（含附件）" : ""}`,
+    `📬 新邮件${hasFiles ? "（含附件）" : ""}`,
     `发件人: ${sender}`,
     `收件人: ${row.to_addr || "(未知)"}`,
     // Bulk senders sometimes use very long subjects; cap it like the body.

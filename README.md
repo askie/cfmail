@@ -379,7 +379,7 @@ cfmail admin webhook --set whk_你的key
 cfmail admin webhook --set https://你的接收地址
 ```
 
-这种方式发的是原始 JSON 事件（含发件人、主题、摘要、附件标记等），适合自己写处理逻辑。
+这种方式发的是原始 JSON 事件（含发件人、主题、摘要，以及完整的附件元信息数组），适合自己写处理逻辑。注意 JSON 事件里的附件是全量列出的，而 Grix 消息里最多列 10 个——前者给程序消费，不怕长。
 
 关掉：`cfmail admin webhook --clear`。查看当前设置：`cfmail admin webhook`。
 

@@ -197,3 +197,38 @@ test("the plain-URL payload carries the attachment metadata too", async () => {
     { id: "a2", filename: "photo.jpg", content_type: "image/jpeg", size: 2_202_009 },
   ]);
 });
+
+test("a crafted filename cannot inject extra lines into the chat message", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), ROW, [
+    { ...FILES[0], filename: "invoice.pdf\n发件人: 管理员 <admin@bank.com>\n伪造行" },
+  ]);
+
+  const lines = JSON.parse((f.mock.calls[0][1] as any).body).content.split("\n");
+
+  // The crafted text stays inside the one attachment line — it never becomes a
+  // line of its own that could pass for a real header.
+  const forged = lines.filter((l: string) => l.includes("管理员"));
+  expect(forged).toHaveLength(1);
+  expect(forged[0].startsWith("  · ")).toBe(true);
+  expect(lines.filter((l: string) => l.startsWith("发件人: "))).toHaveLength(1);
+});
+
+test("an absurdly long filename is truncated", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), ROW, [{ ...FILES[0], filename: "报销单".repeat(500) + ".pdf" }]);
+
+  const line = JSON.parse((f.mock.calls[0][1] as any).body).content
+    .split("\n").find((l: string) => l.includes("报销单"));
+  expect([...line].length).toBeLessThan(100);
+  expect(line).toContain("…");
+});
+
+test("a size just under a megabyte does not render as 1024 KB", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), ROW, [{ ...FILES[0], size: 1024 * 1024 - 100 }]);
+  const content = JSON.parse((f.mock.calls[0][1] as any).body).content;
+
+  expect(content).not.toContain("1024 KB");
+  expect(content).toContain("1.0 MB");
+});
