@@ -55,7 +55,15 @@ export const useHelp = `用法: cfmail use <邮箱地址>
 把某个邮箱设为当前，之后的命令默认用它。
 
 只改本机的选择，不动服务端，也不影响其它邮箱的游标和归档。
-想临时用一次别的邮箱，不必切换——任何命令都能带 --email <地址>。
+
+多个程序同时用 cfmail 时不要用它
+  「当前邮箱」是写进配置文件的共享状态，谁后跑谁说了算。几个 agent 各自
+  cfmail use 会互相覆盖，然后都以为自己在操作别的邮箱。
+
+  各自指定邮箱，互不干扰：
+
+    cfmail unread --email work@example.com          每条命令自己带
+    EMAIL_INBOX_EMAIL=work@example.com cfmail unread  或者整个进程固定一个
 
 示例:
   cfmail use work@example.com
@@ -68,7 +76,13 @@ export async function runUse(argv) {
 
   setCurrentAccount(email, "user");
   if (isJson()) return json({ ok: true, current: email });
+
   out(`当前邮箱: ${email}`);
+  // Worth saying wherever several mailboxes exist: this is shared state, and a
+  // second program switching it out from under this one is silent.
+  if (listAccounts("user").names.length > 1) {
+    out(`\n本机有多个邮箱。如果还有别的程序在用 cfmail，让它们各自带 --email <地址>，\n别依赖「当前邮箱」——那是共享的，会被互相改掉。`);
+  }
 }
 
 export const forgetHelp = `用法: cfmail forget <邮箱地址>
