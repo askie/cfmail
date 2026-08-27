@@ -22,11 +22,18 @@ description: Read and send mail through a cloudflare-email mailbox using the cfm
 cfmail --version
 ```
 
-没有就装（需要 Node 18+）：
+没有就装，两种来源任选（需要 Node 18+）：
 
 ```bash
-npm i -g <本项目路径>/cli     # 或者 npm i -g cfmail（若已发布）
+# 已经有仓库
+npm i -g /path/to/cloudflare-email/cli
+
+# 没有仓库就先取一份（npm 不支持直接装 git 仓库的子目录）
+git clone https://github.com/askie/cloudflare-email.git
+npm i -g ./cloudflare-email/cli
 ```
+
+装完 `cfmail` 在任何目录都能用，不需要 `cd` 到技能目录。
 
 ## 第一步：配置接入点（一次性）
 
@@ -104,7 +111,7 @@ cfmail send --to a@x.com --subject s --text b --json
 
 ## 故障排查
 
-- **`cfmail: command not found`**：CLI 没装或不在 PATH，重新 `npm i -g <项目路径>/cli`。
+- **`cfmail: command not found`**：CLI 没装或不在 PATH，重新跑上面「前置」里的安装命令。
 - **401**：Key 不对或已被管理员吊销 —— 重新 `cfmail setup`。
 - **连不上 / 超时**：确认服务地址正确且可访问（不要用会被阻断的 `*.workers.dev`，用自定义域名）。
 - **首次就没有邮件**：该邮箱确实还没收到过邮件。

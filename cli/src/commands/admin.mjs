@@ -2,7 +2,7 @@
 // Keeping them behind `cfmail admin ...` makes it obvious which key is in play.
 
 import { Mcp } from "../mcp.mjs";
-import { loadConfig, saveConfig, requireConfig, configPath } from "../config.mjs";
+import { loadConfig, readStoredConfig, saveConfig, requireConfig, configPath } from "../config.mjs";
 import { parseArgs } from "../args.mjs";
 import { out, json, fail, isJson } from "../output.mjs";
 
@@ -45,7 +45,7 @@ async function setup(argv) {
     fail("connected, but this is not an admin token — admin tools are not available on it");
   }
 
-  const path = saveConfig({ ...cfg, base, key }, "admin");
+  const path = saveConfig({ ...readStoredConfig("admin"), base, key }, "admin");
   if (isJson()) return json({ ok: true, base, config: path, tools: names });
   out(`✅ 管理员身份已验证\n服务: ${base}\n配置已保存: ${path}`);
 }
@@ -81,8 +81,10 @@ async function deleteKey(argv) {
   if (!email) fail("missing email. Usage: cfmail admin delete-key <email>");
 
   const res = await (await adminMcp()).call("delete_api_key", { email });
+  // A typo in the address must not look like a successful revocation.
+  if (!res?.ok) fail(`no key found for ${email} — nothing was revoked`);
   if (isJson()) return json(res);
-  out(res?.ok ? `已吊销 ${email} 的 Key，该 Key 立即失效。` : `没有找到 ${email} 的 Key。`);
+  out(`已吊销 ${email} 的 Key，该 Key 立即失效。`);
 }
 
 async function webhook(argv) {

@@ -1,5 +1,5 @@
 import { Mcp } from "../mcp.mjs";
-import { loadConfig, saveConfig, requireConfig } from "../config.mjs";
+import { readStoredConfig, saveConfig, requireConfig } from "../config.mjs";
 import { parseArgs } from "../args.mjs";
 import { out, json, isJson, formatDate } from "../output.mjs";
 
@@ -28,14 +28,14 @@ export async function run(argv) {
   const newest = all.reduce((m, e) => Math.max(m, e.date ?? 0), cursor);
 
   if (opts.reset) {
-    saveConfig({ ...loadConfig("user"), cursor: newest }, "user");
+    saveConfig({ ...readStoredConfig("user"), cursor: newest }, "user");
     if (isJson()) return json({ ok: true, reset: true, cursor: newest });
     return out(`已把当前全部邮件标记为已读（游标 ${formatDate(newest)}）`);
   }
 
   // Only a plain run advances the cursor: --peek and --all are for looking.
   if (!opts.peek && !opts.all && rows.length) {
-    saveConfig({ ...loadConfig("user"), cursor: newest }, "user");
+    saveConfig({ ...readStoredConfig("user"), cursor: newest }, "user");
   }
 
   if (isJson()) return json({ ok: true, count: rows.length, emails: rows });

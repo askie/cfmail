@@ -1,5 +1,5 @@
 import { Mcp } from "../mcp.mjs";
-import { loadConfig, saveConfig, configPath } from "../config.mjs";
+import { loadConfig, readStoredConfig, saveConfig, configPath } from "../config.mjs";
 import { parseArgs } from "../args.mjs";
 import { out, json, fail, isJson } from "../output.mjs";
 
@@ -28,7 +28,7 @@ export async function run(argv) {
   }
   const stats = await mcp.call("stats");
 
-  const path = saveConfig({ ...cfg, base, email, key }, "user");
+  const path = saveConfig({ ...readStoredConfig("user"), base, email, key }, "user");
 
   if (isJson()) return json({ ok: true, base, email, config: path, tools: names, visible: stats?.total ?? 0 });
   out(

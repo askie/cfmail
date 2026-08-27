@@ -7,6 +7,13 @@ npm i -g ./cli          # 从本仓库安装
 cfmail --help
 ```
 
+在别的机器上：
+
+```bash
+git clone https://github.com/askie/cloudflare-email.git
+npm i -g ./cloudflare-email/cli
+```
+
 ## 配置
 
 ```bash

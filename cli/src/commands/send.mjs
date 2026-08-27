@@ -52,12 +52,20 @@ function readAttachment(path) {
   };
 }
 
-// `replyId` is set when invoked as `cfmail reply <id>`, which is the same
-// operation with the id given positionally.
-export async function run(argv, replyId) {
+// `cfmail reply <id>` is the same operation with the id given positionally,
+// so both entry points share this one implementation.
+export async function run(argv, { replyPositional = false } = {}) {
   const { opts, positional } = parseArgs(argv, SPEC);
-  const reply = replyId ? positional[0] : opts.reply;
-  if (replyId && !reply) fail("missing email id. Usage: cfmail reply <email-id> --text \"...\"");
+
+  const allowed = replyPositional ? 1 : 0;
+  if (positional.length > allowed) {
+    fail(`unexpected argument: ${positional[allowed]}` +
+      (replyPositional ? "" : "\n(recipients go in --to, the body in --text)"));
+  }
+
+  const reply = replyPositional ? positional[0] : opts.reply;
+  if (replyPositional && !reply) fail("missing email id. Usage: cfmail reply <email-id> --text \"...\"");
+  if (replyPositional && opts.reply) fail("--reply is implied by `cfmail reply <email-id>`; drop it");
 
   if (opts.text != null && opts.textFile) fail("use either --text or --text-file, not both");
   let text = opts.text;

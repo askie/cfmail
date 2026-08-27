@@ -23,7 +23,18 @@ description: Administer a cloudflare-email service with the admin key using the 
 ## 前置：安装 cfmail（一次性）
 
 ```bash
-cfmail --version || npm i -g <本项目路径>/cli
+cfmail --version
+```
+
+没有就装（需要 Node 18+），两种来源任选：
+
+```bash
+# 已经有仓库
+npm i -g /path/to/cloudflare-email/cli
+
+# 没有仓库就先取一份
+git clone https://github.com/askie/cloudflare-email.git
+npm i -g ./cloudflare-email/cli
 ```
 
 ## 第一步：设置接入点（一次性）
@@ -66,7 +77,7 @@ cfmail admin webhook --clear              # 关闭通知
 
 ## 故障排查
 
-- **`cfmail: command not found`**：CLI 没装，`npm i -g <项目路径>/cli`。
+- **`cfmail: command not found`**：CLI 没装，重新跑上面「前置」里的安装命令。
 - **401**：管理员密钥不对 —— 确认它是部署时 `wrangler secret put MCP_TOKEN` 设的那个值。
 - **`this key is not an admin token`**：连上了，但这把 Key 只有普通邮箱权限。
 - **连不上 / 超时**：确认服务地址正确且可访问。

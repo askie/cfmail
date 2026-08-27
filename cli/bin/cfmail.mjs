@@ -4,6 +4,7 @@
 // Every command accepts --json for machine-readable output; failures then print
 // a JSON object too, and always exit non-zero.
 
+import pkg from "../package.json" with { type: "json" };
 import { setJsonMode, out, fail } from "../src/output.mjs";
 
 import * as setup from "../src/commands/setup.mjs";
@@ -19,7 +20,7 @@ import * as admin from "../src/commands/admin.mjs";
 const COMMANDS = {
   setup, unread, list, read, search, attachment, stats, send, admin,
   // Replying is sending with the id given positionally; one implementation.
-  reply: { help: send.help, run: (argv) => send.run(argv, true) },
+  reply: { help: send.help, run: (argv) => send.run(argv, { replyPositional: true }) },
 };
 
 const USAGE = `cfmail — 收发 cloudflare-email 邮箱的命令行工具
@@ -61,7 +62,7 @@ async function main() {
   const name = argv[0];
 
   if (!name || name === "--help" || name === "-h" || name === "help") return out(USAGE);
-  if (name === "--version" || name === "-v") return out("cfmail 1.0.0");
+  if (name === "--version" || name === "-v") return out(`cfmail ${pkg.version}`);
 
   const cmd = COMMANDS[name];
   if (!cmd) fail(`unknown command: ${name}\n\nRun \`cfmail --help\` to see what is available.`);

@@ -159,8 +159,15 @@ skills/
 技能靠这个工具干活，先装（需要 Node 18+）：
 
 ```bash
-npm i -g ./cli
+npm i -g ./cli        # 本地仓库
 cfmail --help
+```
+
+别人先 clone 再装（npm 不支持直接装 git 仓库的子目录）：
+
+```bash
+git clone https://github.com/askie/cloudflare-email.git
+npm i -g ./cloudflare-email/cli
 ```
 
 装完之后 `cfmail` 在任何目录都能用。它把这个服务的全部能力做成了子命令——收信、搜索、发信、回信、附件、管理密钥，详见 [cli/README.md](./cli/README.md)。

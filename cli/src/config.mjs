@@ -2,7 +2,7 @@
 // CLI does not orphan an existing setup. User and admin credentials stay in
 // separate files: the admin key must never sit next to a key handed to a user.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fail } from "./output.mjs";
@@ -43,7 +43,23 @@ export function saveConfig(cfg, scope = "user") {
   const path = configPath(scope);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n", { mode: 0o600 });
+  // `mode` only applies when the file is created, so an existing file written by
+  // an older version keeps its permissions unless we tighten them here.
+  chmodSync(path, 0o600);
   return path;
+}
+
+// What is actually on disk, with no environment merged in. Writing back a
+// value that only came from the environment would silently persist credentials
+// meant for one command into the default config.
+export function readStoredConfig(scope = "user") {
+  const path = configPath(scope);
+  if (!existsSync(path)) return {};
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return {};
+  }
 }
 
 // Every command that talks to the service goes through this, so the "you have
