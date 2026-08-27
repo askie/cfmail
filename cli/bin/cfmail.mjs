@@ -68,6 +68,7 @@ const USAGE = `cfmail — 收发 cloudflare-email 邮箱的命令行工具
   cfmail admin webhook [--set <url>|--clear]
 
 通用
+  --email <地址>  本次用哪个邮箱（配了多个时）
   --json          机器可读输出（失败也是 JSON，且退出码非 0）
   --version       看版本
 
@@ -76,8 +77,25 @@ const USAGE = `cfmail — 收发 cloudflare-email 邮箱的命令行工具
   cfmail prune --help
   cfmail admin webhook --help
 
-环境变量可覆盖配置文件：EMAIL_INBOX_BASE / EMAIL_INBOX_EMAIL / EMAIL_INBOX_KEY /
-EMAIL_INBOX_CONFIG（管理端同理 EMAIL_ADMIN_*）。`;
+多个程序（比如几个 Agent）同时用
+  各自指定邮箱，别依赖「当前邮箱」——那是写在配置文件里的共享状态，
+  谁后跑谁说了算，几个程序各自 cfmail use 会互相覆盖。
+
+    cfmail unread --email box@example.com       每条命令自己带
+    EMAIL_INBOX_EMAIL=box@example.com           整个进程固定一个（推荐给 Agent）
+
+  想连未读游标也完全独立（比如两个程序要各自读同一个邮箱）：
+
+    EMAIL_INBOX_CONFIG=~/.config/agent-a.json   各用各的配置文件
+
+  配置文件本身可以并发读写：不会丢更新，也不会读到写了一半的内容。
+
+环境变量（优先于配置文件）
+  EMAIL_INBOX_EMAIL   选用哪个邮箱
+  EMAIL_INBOX_CONFIG  配置文件路径，换一个就是一套完全独立的设置
+  EMAIL_INBOX_BASE    服务地址
+  EMAIL_INBOX_KEY     API Key
+  管理端同理 EMAIL_ADMIN_*（BASE / KEY / CONFIG）。`;
 
 async function main() {
   const argv = process.argv.slice(2);

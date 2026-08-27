@@ -85,6 +85,22 @@ EMAIL_INBOX_EMAIL=work@example.com cfmail unread  # 或整个进程固定一个
 会互相覆盖，然后都以为自己在操作别的邮箱。`--email` 和环境变量都是本次调用/本进程
 独有的，不会串。
 
+按隔离程度从轻到重：
+
+| 做法 | 隔离什么 |
+| --- | --- |
+| `--email <地址>` | 每条命令 |
+| `EMAIL_INBOX_EMAIL=<地址>` | 整个进程（多数场景推荐） |
+| `EMAIL_INBOX_CONFIG=<路径>` | 连未读游标也独立，完全两套设置 |
+
+第三种用于「两个程序要各自读同一个邮箱」——各带各的游标：
+
+```bash
+export EMAIL_INBOX_CONFIG=~/.config/cfmail-agent-a.json
+cfmail setup --base <地址> --email <邮箱> --key <Key>
+cfmail unread
+```
+
 并发下的保证：
 
 | 场景 | 行为 |
