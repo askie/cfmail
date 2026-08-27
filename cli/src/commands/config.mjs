@@ -2,22 +2,25 @@ import { readStoredConfig, configPath } from "../config.mjs";
 import { parseArgs } from "../args.mjs";
 import { out, json, isJson, formatDate } from "../output.mjs";
 
-export const help = `用法: cfmail config
+export const help = `Usage: cfmail config
 
-看这份配置里当前是哪个邮箱、连的哪个服务、归档到哪、有没有开推送。
-不会打印 API Key。
+See which mailbox this config currently points at, which service it connects
+to, where it archives to, and whether push is on. Never prints the API key.
 
-一份配置文件 = 一个邮箱。想在同一台机器上再收一个邮箱，给它另开一份配置：
+One config file = one mailbox. To receive a second mailbox on the same
+machine, give it its own config file:
 
   export EMAIL_INBOX_CONFIG=~/.config/email-inbox/work.json
-  cfmail setup --base <服务地址> --email work@example.com --key <Key>
+  cfmail setup --base <service-url> --email work@example.com --key <key>
 
-两份配置的密钥、未读游标、归档目录、推送设置完全分开，互相看不见，
-所以两个程序各设各的 EMAIL_INBOX_CONFIG 就不会串。
+The two configs' keys, unread cursors, archive directories, and push settings
+are completely separate and invisible to each other, so two programs each
+pointing at their own EMAIL_INBOX_CONFIG never collide.
 
-不想要某个邮箱了，删掉它那份配置文件即可（不影响服务端，也不吊销 Key）。
+Don't want a mailbox anymore? Just delete its config file (the server side
+and the key are untouched).
 
-配置文件: ${configPath("user")}`;
+Config file: ${configPath("user")}`;
 
 export async function run(argv) {
   parseArgs(argv, {});

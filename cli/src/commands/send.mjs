@@ -11,65 +11,77 @@ const SPEC = {
   "--reply": "string", "--attach": "list", "--forward-attachment": "list",
 };
 
-export const replyHelp = `用法: cfmail reply <邮件id> --text <正文> [选项]
+export const replyHelp = `Usage: cfmail reply <email-id> --text <body> [options]
 
-在原会话里回信。收件人、主题、会话线索（In-Reply-To / References）全部从原邮件
-推导，所以对方看到的是同一串对话，多轮往返也不会断。
+Reply within the original thread. Recipient, subject, and threading headers
+(In-Reply-To / References) are all derived from the original email, so the
+other side sees one continuous conversation even across many replies.
 
-手工拼 --to 加 --subject "Re: ..." 做不到这一点，回信一律用这个命令。
+Hand-assembling --to plus --subject "Re: ..." can't do this — always use this
+command to reply.
 
-参数:
-  <邮件id>           必需。要回复哪封，从 unread / list / search 的输出里拿
-  --text <正文>      正文。与 --text-file 二选一
-  --text-file <路径> 从文件读正文
-  --to <地址>        额外收件人。默认只回给原发件人
-  --cc <地址>        抄送，可重复
-  --subject <主题>   覆盖自动生成的 Re: 主题。原邮件没主题时必须给
-  --attach <路径>    附上本地文件，可重复
+Options:
+  <email-id>          Required. Which email to reply to, from the output of
+                      unread / list / search
+  --text <body>       Body text. Pick either this or --text-file
+  --text-file <path>  Read the body from a file
+  --to <address>      Extra recipient. Replies to the original sender by default
+  --cc <address>      Cc, repeatable
+  --subject <subject> Override the auto-generated "Re: " subject. Required if
+                      the original had no subject
+  --attach <path>     Attach a local file, repeatable
   --forward-attachment <id>
-                     转发已存附件，可重复
-  --json             输出 JSON
+                      Forward an already-stored attachment, repeatable
+  --json              Print JSON
 
-示例:
-  cfmail reply 57d74fd6 --text "收到，稍后处理"
-  cfmail reply 57d74fd6 --text "见附件" --attach ./report.pdf
-  cfmail reply 57d74fd6 --text "转给你" --forward-attachment ed0ee1cf
+Examples:
+  cfmail reply 57d74fd6 --text "Got it, will handle later"
+  cfmail reply 57d74fd6 --text "See attached" --attach ./report.pdf
+  cfmail reply 57d74fd6 --text "Forwarding to you" --forward-attachment ed0ee1cf
 
-发一封新邮件见 cfmail send --help`;
+To send a brand-new email instead, see cfmail send --help`;
 
-export const help = `用法: cfmail send --to <收件人> --subject <主题> --text <正文> [选项]
+export const help = `Usage: cfmail send --to <recipient> --subject <subject> --text <body> [options]
 
-发一封邮件。发件人恒为这把 Key 绑定的地址，服务端强制，改不了，所以你发不出
-别人的地址。
+Send an email. The sender is always the address this key is bound to — that's
+enforced server-side and can't be changed, so you can't send from someone
+else's address.
 
-收件人与主题:
-  --to <地址>        收件人，可重复给多个。回信时可省略（从原邮件推导）
-  --cc <地址>        抄送，可重复
-  --subject <主题>   主题。回信时可省略（自动用 Re: 原主题）
+Recipient and subject:
+  --to <address>      Recipient, repeat for more than one. Optional when
+                      replying (derived from the original)
+  --cc <address>      Cc, repeatable
+  --subject <subject> Subject. Optional when replying (auto-prefixed with "Re: ")
 
-正文（二选一，必需）:
-  --text <正文>      直接给正文
-  --text-file <路径> 从文件读正文。正文长、含多行或中文时更省事
+Body (required, pick one):
+  --text <body>       Give the body directly
+  --text-file <path>  Read the body from a file — easier for long, multi-line,
+                      or Chinese text
 
-附件（都可重复）:
-  --attach <路径>            附上本地文件，MIME 类型按扩展名自动判断
-  --forward-attachment <id>  转发已存附件，字节在服务端内部流转，不用先下载
+Attachments (both repeatable):
+  --attach <path>            Attach a local file; MIME type is guessed from
+                             the extension
+  --forward-attachment <id>  Forward an already-stored attachment — the bytes
+                             move server-side, no need to download it first
 
-回信:
-  --reply <邮件id>   在原会话里回信。等价于 cfmail reply <邮件id>
+Replying:
+  --reply <email-id>  Reply within the original thread. Equivalent to
+                      cfmail reply <email-id>
 
-其它:
-  --json             输出 JSON，失败时也是 JSON 且退出码非 0
+Other:
+  --json              Print JSON; failures are JSON too, with a non-zero exit code
 
-能发多大: 附件会被 base64 编码、体积涨三分之一，服务按编码后大小判断。走
-Resend 约 29 MB，走 Cloudflare 约 3.6 MB，最多 32 个附件。超了会在发送前告诉你。
+Size limits: attachments are base64-encoded, inflating them by a third, and
+the service checks the encoded size. Roughly 29 MB over Resend, 3.6 MB over
+Cloudflare, 32 attachments max either way. You're told before anything is
+sent if you're over.
 
-示例:
-  cfmail send --to a@x.com --subject "标题" --text "正文"
-  cfmail send --to a@x.com --cc b@x.com --subject 报表 --text 见附件 --attach ./q3.pdf
-  cfmail send --to a@x.com --subject 长文 --text-file ./body.txt
+Examples:
+  cfmail send --to a@x.com --subject "subject" --text "body"
+  cfmail send --to a@x.com --cc b@x.com --subject "Report" --text "See attached" --attach ./q3.pdf
+  cfmail send --to a@x.com --subject "Long text" --text-file ./body.txt
 
-正文或主题以 -- 开头时，用等号形式: --subject=--重要通知--`;
+If the body or subject starts with --, use the = form: --subject=--Important notice--`;
 
 // Enough for the recipient's mail client to show a sensible icon and preview.
 const MIME = {

@@ -9,25 +9,26 @@ const SPEC = {
   "--limit": "number", "--offset": "number",
 };
 
-export const help = `用法: cfmail list [筛选条件] [分页]
+export const help = `Usage: cfmail list [filters] [paging]
 
-按条件列出已存邮件，最新的在前。不碰未读游标，随便查不影响 unread。
+List stored mail matching the given filters, newest first. Doesn't touch the
+unread cursor, so browsing freely doesn't affect \`unread\`.
 
-筛选条件（可组合，都是「包含」匹配）:
-  --from <文本>      发件人包含该文本
-  --to <文本>        收件人包含该文本
-  --subject <文本>   主题包含该文本
-  --since <时间>     早于此时间的不要，ISO 格式如 2026-08-01
-  --until <时间>     晚于此时间的不要
+Filters (combinable, all "contains" matches):
+  --from <text>      Sender contains this text
+  --to <text>        Recipient contains this text
+  --subject <text>   Subject contains this text
+  --since <time>     Exclude anything before this, ISO format like 2026-08-01
+  --until <time>     Exclude anything after this
 
-分页:
-  --limit N          每页几封，1-100，默认 20
-  --offset N         跳过前 N 封。输出末尾会提示下一页的 offset
+Paging:
+  --limit N          How many per page, 1-100, default 20
+  --offset N         Skip the first N. The output tells you the next page's offset
 
-示例:
+Examples:
   cfmail list --from acme.com --limit 50
-  cfmail list --subject 发票 --since 2026-08-01
-  cfmail list --limit 100 --offset 100     看第二页`;
+  cfmail list --subject invoice --since 2026-08-01
+  cfmail list --limit 100 --offset 100     see the second page`;
 
 export async function run(argv) {
   const { opts } = parseArgs(argv, SPEC);

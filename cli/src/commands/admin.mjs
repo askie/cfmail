@@ -6,38 +6,42 @@ import { loadConfig, readStoredConfig, saveConfig, requireConfig, configPath } f
 import { parseArgs } from "../args.mjs";
 import { out, json, fail, isJson } from "../output.mjs";
 
-const OVERVIEW = `用法: cfmail admin <子命令> [参数]
+const OVERVIEW = `Usage: cfmail admin <subcommand> [options]
 
-用管理员令牌管理这台服务：开通邮箱、签发/吊销密钥、配置新邮件通知。
-管理员令牌就是部署时设置的 MCP_TOKEN，与普通用户的 Key 分开存放。
+Administer this service with the admin token: open mailboxes, issue/revoke
+keys, configure new-mail notifications. The admin token is the MCP_TOKEN set
+at deploy time, stored separately from ordinary user keys.
 
-子命令:
-  setup --base <地址> --key <管理员令牌>
-        配置并验证管理员身份。会连服务确认这把钥匙确实能看到管理工具
+Subcommands:
+  setup --base <url> --key <admin-token>
+        Configure and verify admin identity. Connects to the service to
+        confirm this token can actually see the admin tools
 
-  create-key <邮箱>
-        给某个地址开通邮箱，打印一把明文 Key（只显示这一次）
+  create-key <email>
+        Open a mailbox for an address, printing a plaintext key (shown once)
 
   list-keys
-        列出已发放 Key 的邮箱地址（不回显密钥本身）
+        List the addresses that have been issued a key (never echoes the key itself)
 
-  delete-key <邮箱>
-        吊销该地址的 Key，立即失效
+  delete-key <email>
+        Revoke that address's key, effective immediately
 
-  webhook [--set <值> | --clear]
-        不带参数看当前设置；--set whk_xxx 把新邮件推成 Grix 聊天消息；
-        --set https://... 改为 POST 原始 JSON 给你自己的程序；--clear 关闭
+  webhook [--set <value> | --clear]
+        No options: show the current setting; --set whk_xxx pushes new mail as
+        a Grix chat message; --set https://... POSTs raw JSON to your own
+        program instead; --clear turns it off
 
-任何子命令都支持 --json，失败时也是 JSON 且退出码非 0。
+Every subcommand supports --json; failures are JSON too, with a non-zero exit code.
 
-示例:
+Examples:
   cfmail admin setup --base https://mail.example.com --key <MCP_TOKEN>
   cfmail admin create-key alice@example.com
   cfmail admin webhook --set whk_71e14a27…
   cfmail admin delete-key alice@example.com
 
-管理员令牌存在 ${configPath("admin")}，
-它是最高权限凭证，绝不能交给只该读一个邮箱的人。`;
+The admin token lives in ${configPath("admin")} —
+it's the highest-privilege credential, never hand it to someone who should
+only read one mailbox.`;
 
 async function adminMcp() {
   const cfg = requireConfig("admin");
@@ -143,57 +147,62 @@ const SUB = {
 // Per-subcommand help, so `cfmail admin create-key --help` answers usefully
 // instead of dumping the whole admin overview.
 const SUB_HELP = {
-  setup: `用法: cfmail admin setup --base <服务地址> --key <管理员令牌>
+  setup: `Usage: cfmail admin setup --base <service-url> --key <admin-token>
 
-配置管理员连接并当场验证：连上服务后确认这把钥匙确实能看到管理工具，
-是普通邮箱 Key 的话会明确报错，不会被误存成管理员配置。
+Configure the admin connection and verify it right away: connects to the
+service and confirms this token can see the admin tools, giving a clear error
+instead if it's an ordinary mailbox key so it never gets saved as admin config.
 
-参数:
-  --base <服务地址>    服务根地址，不带 /mcp
-  --key <管理员令牌>   部署时 wrangler secret put MCP_TOKEN 设的那个值`,
+Options:
+  --base <service-url>  Service root, no /mcp
+  --key <admin-token>   The value set at deploy time with wrangler secret put MCP_TOKEN`,
 
-  "create-key": `用法: cfmail admin create-key <邮箱地址>
+  "create-key": `Usage: cfmail admin create-key <email-address>
 
-给一个地址开通邮箱，签发绑定到它的 API Key。
+Open a mailbox for an address, issuing an API key bound to it.
 
-地址不需要预先创建：服务对整个域名 catch-all 收信，签发 Key 就是把某个地址的
-收件权限绑给这把 Key。
+The address doesn't need to exist beforehand — the service catches mail for
+the whole domain, and issuing a key just binds an address's receiving rights
+to that key.
 
-打印出来的 Key 只显示这一次，请立刻交给使用者。命令会顺带打印对方该跑的
-配置命令，直接转给他即可。
+The printed key is shown only this once — hand it to the user right away.
+The command also prints the config command they should run, ready to forward.
 
-示例:
+Example:
   cfmail admin create-key alice@example.com`,
 
-  "list-keys": `用法: cfmail admin list-keys
+  "list-keys": `Usage: cfmail admin list-keys
 
-列出已经发放过 Key 的邮箱地址。只列地址，不回显密钥本身——密钥在签发时
-只显示那一次，服务端存的是哈希，取不回来。`,
+List the addresses that have been issued a key. Addresses only — never the
+key itself; a key is shown once at issue time and the server only stores a
+hash of it, which can't be turned back into the key.`,
 
-  "delete-key": `用法: cfmail admin delete-key <邮箱地址>
+  "delete-key": `Usage: cfmail admin delete-key <email-address>
 
-吊销某个地址的 Key，立即失效，对方再用会收到 401。
+Revoke that address's key, effective immediately — the next use gets a 401.
 
-地址不存在时会报错并以非 0 退出，所以放进脚本时打错地址不会被当成成功。
+Errors and exits non-zero if the address doesn't exist, so a typo in a script
+won't be mistaken for success.
 
-示例:
+Example:
   cfmail admin delete-key alice@example.com`,
 
-  webhook: `用法: cfmail admin webhook [--set <值> | --clear]
+  webhook: `Usage: cfmail admin webhook [--set <value> | --clear]
 
-配置新邮件到达时通知到哪。不带参数就是查看当前设置。
+Configure where new-mail notifications go. No options: show the current setting.
 
-参数:
-  --set whk_xxx        Grix key。新邮件会作为一条聊天消息推送到对应会话
-  --set https://...    普通 webhook。新邮件会以原始 JSON 事件 POST 过去
-  --clear              关闭通知
+Options:
+  --set whk_xxx        A Grix key. New mail is pushed as a chat message to that session
+  --set https://...    A plain webhook. New mail is POSTed as a raw JSON event
+  --clear              Turn notifications off
 
-服务按值的形态自动判断类型，其它形态一律拒绝。
+The service infers which kind from the shape of the value; anything else is rejected.
 
-推送是尽力而为的：失败只记日志，绝不会影响邮件本身的接收和存档。同一封邮件被
-重复投递时用 Message-ID 去重，不会推成两条。
+Delivery is best-effort: a failure is only logged and never affects receiving
+or archiving the mail itself. A redelivered copy of the same email is
+deduplicated by Message-ID, so it's never pushed twice.
 
-示例:
+Examples:
   cfmail admin webhook
   cfmail admin webhook --set whk_71e14a27…
   cfmail admin webhook --set https://example.com/hook

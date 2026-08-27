@@ -27,71 +27,74 @@ const COMMANDS = {
   reply: { help: send.replyHelp, run: (argv) => send.run(argv, { replyPositional: true }) },
 };
 
-const USAGE = `cfmail — 收发 cloudflare-email 邮箱的命令行工具
+const USAGE = `cfmail — command-line client for a cloudflare-email mailbox
 
-收信
-  cfmail unread [--peek] [--all] [--limit N] [--reset]   收最新未读邮件
-  cfmail list [--from X] [--subject X] [--limit N]       按条件列邮件
-  cfmail read <email-id> [--html]                        读某封的全文和附件清单
-  cfmail search "关键字" [--limit N]                      全文搜索（支持中文）
-  cfmail attachment <attachment-id> --out <path>         下载附件
-  cfmail stats                                           邮箱统计
+Receiving
+  cfmail unread [--peek] [--all] [--limit N] [--reset]   fetch the latest unread mail
+  cfmail list [--from X] [--subject X] [--limit N]       list mail matching filters
+  cfmail read <email-id> [--html]                        read one email's full text and attachment list
+  cfmail search "keyword" [--limit N]                    full-text search (Chinese included)
+  cfmail attachment <attachment-id> --out <path>         download an attachment
+  cfmail stats                                           mailbox summary
 
-归档到本地
-  cfmail sync --dir ~/mail                               把邮件按天存到本地（正文+附件）
-  cfmail sync                                            之后只同步新邮件
-  cfmail prune --older-than 90d                          预演清理旧归档
-  cfmail prune --older-than 90d --yes                    真正删除（只删本地，不动服务器）
+Local archive
+  cfmail sync --dir ~/mail                               archive mail by day to local disk (body + attachments)
+  cfmail sync                                            only sync new mail after that
+  cfmail prune --older-than 90d                          dry run: preview cleaning up old archives
+  cfmail prune --older-than 90d --yes                    actually delete (local only, server untouched)
 
-发信
-  cfmail send --to a@x.com --subject "标题" --text "正文"  发一封
-  cfmail reply <email-id> --text "回复内容"                在原会话里回信
-    --attach <path>               带上本地文件
-    --forward-attachment <id>     转发收到的附件（不用先下载）
-    --text-file <path>            正文从文件读（长正文、中文更省事）
+Sending
+  cfmail send --to a@x.com --subject "subject" --text "body"  send one
+  cfmail reply <email-id> --text "reply text"                 reply within the original thread
+    --attach <path>               attach a local file
+    --forward-attachment <id>     forward a received attachment (no download needed)
+    --text-file <path>            read the body from a file (easier for long or Chinese text)
 
-配置
-  cfmail setup --base <url> --email <地址> --key <key>    配置邮箱并当场验证
-  cfmail config                                          看当前配的是哪个邮箱
+Configuration
+  cfmail setup --base <url> --email <address> --key <key>  configure a mailbox and verify it right away
+  cfmail config                                            see which mailbox this config points at
 
-  新开一个邮箱地址要两步，分属两个角色：
-    1. 管理员  cfmail admin create-key <地址>    签发 Key（只显示这一次）
-    2. 使用者  cfmail setup --base ... --key ... 拿这把 Key 配到自己机器上
-  两步都是自己做的话，照着顺序跑一遍即可。
+  Opening a new mailbox address is two steps, owned by two roles:
+    1. Admin  cfmail admin create-key <address>    issue a key (shown once)
+    2. User   cfmail setup --base ... --key ...    configure that key on your machine
+  If you're doing both yourself, just run them in order.
 
-管理（需要管理员令牌）
+Admin (needs the admin token)
   cfmail admin setup --base <url> --key <admin-token>
-  cfmail admin create-key <email>          给某个地址开通邮箱
-  cfmail admin list-keys                   看已发放的 Key
-  cfmail admin delete-key <email>          吊销某个地址的 Key
+  cfmail admin create-key <email>          open a mailbox for an address
+  cfmail admin list-keys                   list issued keys
+  cfmail admin delete-key <email>          revoke an address's key
   cfmail admin webhook [--set <url>|--clear]
 
-通用
-  --json          机器可读输出（失败也是 JSON，且退出码非 0）
-  --version       看版本
+General
+  --json          machine-readable output (failures are JSON too, with a non-zero exit code)
+  --version       show the version
 
-每个命令后面加 --help，都有完整的参数说明和示例：
+Every command answers --help with the full option reference and examples:
   cfmail send --help
   cfmail prune --help
   cfmail admin webhook --help
 
-一份配置 = 一个邮箱
-  没有「当前邮箱」这种共享设置，所以不存在被别的程序改掉的问题。
-  要再收一个邮箱，就再开一份配置：
+One config = one mailbox
+  There's no "current mailbox" shared setting, so there's nothing for another
+  program to change out from under you. To receive a second mailbox, open a
+  second config file:
 
     export EMAIL_INBOX_CONFIG=~/.config/email-inbox/work.json
-    cfmail setup --base <服务地址> --email work@example.com --key <Key>
-    cfmail unread                               这个进程之后都走 work 这份
+    cfmail setup --base <service-url> --email work@example.com --key <key>
+    cfmail unread                               this process uses that one from now on
 
-  密钥、未读游标、归档目录、推送设置都在各自的文件里，互相看不见。
-  几个 Agent 同时跑，各设各的 EMAIL_INBOX_CONFIG 就行。
-  同一份配置被并发读写也是安全的：不会丢更新，也不会读到写了一半的内容。
+  The key, unread cursor, archive directory, and push settings each live in
+  their own file, invisible to each other. Several Agents running at once
+  just need their own EMAIL_INBOX_CONFIG.
+  A config file being read and written concurrently is safe too: no update is
+  lost, and no one ever reads a half-written file.
 
-环境变量（优先于配置文件）
-  EMAIL_INBOX_CONFIG  配置文件路径，换一个就是一套完全独立的设置
-  EMAIL_INBOX_BASE    服务地址
-  EMAIL_INBOX_KEY     API Key
-  管理端同理 EMAIL_ADMIN_*（BASE / KEY / CONFIG）。`;
+Environment variables (take priority over the config file)
+  EMAIL_INBOX_CONFIG  Config file path — switch it and you get a fully separate setup
+  EMAIL_INBOX_BASE    Service URL
+  EMAIL_INBOX_KEY     API key
+  Same pattern for admin with EMAIL_ADMIN_* (BASE / KEY / CONFIG).`;
 
 // `cfmail list | head -3` closes the pipe while we are still writing, and node
 // turns that into an unhandled 'error' event: a stack trace where the user

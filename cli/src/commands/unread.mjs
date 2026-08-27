@@ -7,24 +7,24 @@ const SPEC = {
   "--peek": "bool", "--all": "bool", "--reset": "bool", "--limit": "number",
 };
 
-export const help = `用法: cfmail unread [选项]
+export const help = `Usage: cfmail unread [options]
 
-收取比上次更新的邮件，然后把游标推进到最新。
+Fetch mail newer than last time, then advance the cursor to the latest.
 
-服务端不记录已读/未读，本机用一个游标记住「看到哪儿了」，所以已读状态是每台
-机器各自独立的。
+The server doesn't track read/unread — a local cursor remembers "seen up to
+here", so read state is independent on every machine.
 
-参数:
-  --peek        只看，不推进游标（下次还会再列出来）
-  --all         忽略游标，直接看最近的邮件（也不推进游标）
-  --limit N     最多列几封，1-100，默认 20
-  --reset       把当前所有邮件标记为已读，不打印内容
+Options:
+  --peek        Look only, don't advance the cursor (shows up again next time)
+  --all         Ignore the cursor, show the most recent mail (doesn't advance it either)
+  --limit N     How many to list, 1-100, default 20
+  --reset       Mark everything currently there as read, without printing it
 
-示例:
-  cfmail unread                 收新邮件并标记已读
-  cfmail unread --peek          先看看有什么，不标记
-  cfmail unread --all --limit 5 最近 5 封，不管读没读过
-  cfmail unread --reset         从现在开始只看新的`;
+Examples:
+  cfmail unread                 fetch new mail and mark it read
+  cfmail unread --peek          look without marking anything
+  cfmail unread --all --limit 5 the last 5, regardless of read state
+  cfmail unread --reset         only see new mail from now on`;
 
 export async function run(argv) {
   const { opts } = parseArgs(argv, SPEC);
