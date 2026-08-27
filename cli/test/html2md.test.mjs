@@ -33,9 +33,63 @@ test("attribute quoting styles are all handled", () => {
   expect(md(`<a href=https://x.com>q</a>`)).toBe("[q](https://x.com)");
 });
 
-test("a javascript: link is stripped of its href", () => {
-  // Rendering it as a markdown link would put a clickable script URL in chat.
-  expect(md(`<a href="javascript:steal()">点我</a>`)).toBe("点我");
+// --- Only safe schemes may keep their href. ------------------------------------
+
+// An allowlist rather than a blocklist: the next dangerous scheme does not need
+// to be predicted, and case or whitespace tricks cannot slip past it.
+test.each([
+  ["javascript:", '<a href="javascript:steal()">点我</a>'],
+  ["mixed case", '<a href="JaVaScRiPt:alert(1)">点我</a>'],
+  ["leading space", '<a href=" javascript:alert(1)">点我</a>'],
+  ["embedded tab", '<a href="java\tscript:alert(1)">点我</a>'],
+  ["data:", '<a href="data:text/html,<b>x</b>">点我</a>'],
+  ["vbscript:", '<a href="vbscript:msgbox(1)">点我</a>'],
+  ["file:", '<a href="file:///etc/passwd">点我</a>'],
+])("a %s link keeps its text but loses the href", (_name, html) => {
+  expect(md(html)).toBe("点我");
+});
+
+test.each([
+  ["https", '<a href="https://x.com/a?b=1">go</a>', "[go](https://x.com/a?b=1)"],
+  ["http", '<a href="http://x.com">go</a>', "[go](http://x.com)"],
+  ["mailto", '<a href="mailto:a@x.com">写信</a>', "[写信](mailto:a@x.com)"],
+  ["relative", '<a href="/path/page">相对</a>', "[相对](/path/page)"],
+])("a %s link is kept", (_name, html, expected) => {
+  expect(md(html)).toBe(expected);
+});
+
+// --- Crafted markup must not break out into markdown structure. ---------------
+
+test("a bracket in the label is escaped so the link cannot be forged", () => {
+  // Unescaped, "a](evil) [x" would close the link early and inject another.
+  expect(md('<a href="https://x.com">a]b</a>')).toBe("[a\\]b](https://x.com)");
+});
+
+test("parentheses and spaces in a URL are percent-encoded, not left to break the link", () => {
+  expect(md('<a href="https://x.com/a(b)c">链接</a>')).toBe("[链接](https://x.com/a%28b%29c)");
+  expect(md('<a href="https://x.com/a b">链接</a>')).toBe("[链接](https://x.com/a%20b)");
+});
+
+test("a > inside an attribute value does not end the tag early", () => {
+  expect(md('<a href="https://x.com/a>b">点我</a>')).toBe("[点我](https://x.com/a>b)");
+  expect(md('<td title="a>b">单元格</td>')).toBe("单元格");
+});
+
+test("unclosed and nested anchors degrade to plain text rather than debris", () => {
+  expect(md('<a href="https://x.com">未闭合')).toBe("未闭合");
+  expect(md('<a href="https://o.com">外<a href="https://i.com">内</a></a>'))
+    .toBe("[外内](https://o.com)");
+});
+
+test("no output ever retains a tag", () => {
+  const nasty = [
+    '<a href="https://x.com/a>b">x</a>',
+    '<div class="a>b">y</div>',
+    '<img src="x" alt="z>">',
+    "<p onclick='alert(1)'>w</p>",
+    "<unknown-tag>v</unknown-tag>",
+  ];
+  for (const html of nasty) expect(md(html), html).not.toMatch(/<[a-z!/]/i);
 });
 
 test("a tracking URL longer than the cap degrades to its label", () => {

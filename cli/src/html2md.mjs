@@ -32,6 +32,37 @@ function attr(tag, name) {
   return m ? decodeEntities(m[2] ?? m[3] ?? m[4] ?? "").trim() : "";
 }
 
+// Only schemes that are safe to hand a chat client. Anything else — javascript:,
+// data:, vbscript:, and whatever comes next — loses its href and survives as
+// plain text. A blocklist would have to guess at the future; this does not.
+// Leading control characters and case are both normalised first: `JaVaScRiPt:`
+// and " javascript:" are the classic ways past a naive check.
+const SAFE_SCHEME = /^(https?:|mailto:)/i;
+
+function safeHref(href) {
+  const cleaned = href.replace(/[\u0000-\u0020]/g, "");
+  if (!cleaned) return "";
+  // A relative or anchor-only href has no scheme to abuse.
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(cleaned)) return href.trim();
+  return SAFE_SCHEME.test(cleaned) ? href.trim() : "";
+}
+
+// `]` inside a label and `(` `)` inside a URL both break the link syntax, and a
+// crafted email could use that to forge markdown around its own content.
+function mdLabel(text) {
+  return text.replace(/([\\[\]])/g, "\\$1");
+}
+
+function mdUrl(url) {
+  // Percent-encode rather than wrap in <>: the angle-bracket form would be eaten
+  // by the tag-stripping pass that runs after this one. These escapes are
+  // ordinary URL syntax, so the link still resolves.
+  return url
+    .replace(/\(/g, "%28")
+    .replace(/\)/g, "%29")
+    .replace(/\s/g, "%20");
+}
+
 export function htmlToMarkdown(html, { maxLinkLength = 200 } = {}) {
   if (!html) return "";
 
@@ -41,19 +72,23 @@ export function htmlToMarkdown(html, { maxLinkLength = 200 } = {}) {
   s = s.replace(/<!--[\s\S]*?-->/g, "");
   s = s.replace(/<(script|style|head|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi, "");
 
-  // Links first: the anchor's own text becomes the label.
-  s = s.replace(/<a\b([^>]*)>([\s\S]*?)<\/a>/gi, (whole, tag, inner) => {
-    const href = attr(tag, "href");
-    const label = decodeEntities(inner.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
-    if (!href || href.startsWith("javascript:")) return label;
-    if (href.length > maxLinkLength) return label || href.slice(0, maxLinkLength);
-    // A link whose text already is the URL reads better bare.
-    if (!label || label === href) return href;
-    return `[${label}](${href})`;
-  });
+  // Links first: the anchor's own text becomes the label. The tag pattern skips
+  // over quoted attribute values so a `>` inside one does not end the tag early.
+  s = s.replace(
+    /<a\b((?:[^>"']|"[^"]*"|'[^']*')*)>([\s\S]*?)<\/a>/gi,
+    (whole, tag, inner) => {
+      const href = safeHref(attr(tag, "href"));
+      const label = decodeEntities(inner.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
+      if (!href) return label;
+      if (href.length > maxLinkLength) return label || href.slice(0, maxLinkLength);
+      // A link whose text already is the URL reads better bare.
+      if (!label || label === href) return href;
+      return `[${mdLabel(label)}](${mdUrl(href)})`;
+    }
+  );
 
   // Images carry meaning only through their alt text.
-  s = s.replace(/<img\b([^>]*)>/gi, (whole, tag) => {
+  s = s.replace(/<img\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi, (whole, tag) => {
     const alt = attr(tag, "alt");
     return alt ? `[图片: ${alt}]` : "";
   });
@@ -78,7 +113,9 @@ export function htmlToMarkdown(html, { maxLinkLength = 200 } = {}) {
   s = s.replace(/<\/tr>/gi, "\n");
   s = s.replace(/<\/(p|div|section|article|blockquote|ul|ol|table|h[1-6])>/gi, "\n\n");
 
-  // Whatever markup is left carries no text of its own.
+  // Whatever markup is left carries no text of its own. Quoted values are
+  // skipped here too: `<td title="a>b">` must be removed whole.
+  s = s.replace(/<[a-z!/][^>"']*(?:"[^"]*"|'[^']*'[^>"']*)*>/gi, "");
   s = s.replace(/<[^>]+>/g, "");
   s = decodeEntities(s);
 
