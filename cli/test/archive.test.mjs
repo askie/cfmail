@@ -2,7 +2,7 @@ import { test, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mailboxDir, migrateFlatArchive, isDayDir, MARKER } from "../src/archive.mjs";
+import { mailboxDir, migrateFlatArchive, isDayDir, MARKER, LOCK } from "../src/archive.mjs";
 
 let root;
 
@@ -92,4 +92,42 @@ test("files that are not day folders stay at the root", () => {
 
   expect(existsSync(join(root, "notes.txt"))).toBe(true);
   expect(existsSync(join(root, MARKER))).toBe(true);
+});
+
+// --- Turning an address into a folder name. ------------------------------------
+
+test("case is folded, so one address cannot end up with two folders", () => {
+  // macOS and Windows treat these as the same folder anyway; lowercasing makes
+  // the collapse deliberate and consistent on Linux too.
+  expect(mailboxDir("/a", "Me@X.com")).toBe(mailboxDir("/a", "me@x.com"));
+});
+
+test("surrounding whitespace does not create a separate folder", () => {
+  expect(mailboxDir("/a", "  me@x.com  ")).toBe(mailboxDir("/a", "me@x.com"));
+});
+
+test("an address too long for a folder name is truncated, keeping the domain", () => {
+  // Left alone this is an ENAMETOOLONG that would abort the whole sync.
+  const long = "a".repeat(300) + "@example.com";
+  const name = mailboxDir("/a", long).split(/[\\/]/).pop();
+
+  expect(new TextEncoder().encode(name).length).toBeLessThanOrEqual(180);
+  expect(name.endsWith("@example.com")).toBe(true);
+  expect(name).toContain("~");   // marked as cut, not mistaken for a real address
+});
+
+test("two long addresses on different domains stay distinct", () => {
+  const a = mailboxDir("/a", "x".repeat(300) + "@one.com");
+  const b = mailboxDir("/a", "x".repeat(300) + "@two.com");
+  expect(a).not.toBe(b);
+});
+
+test("migration clears a lock left at the root by the older layout", () => {
+  // The lock now lives per mailbox, so nothing would ever look at this again.
+  writeFileSync(join(root, LOCK), "{}");
+  mail(root, "2026-08-27", "0930-one-aaa111");
+
+  migrateFlatArchive(root, "me@x.com");
+
+  expect(existsSync(join(root, LOCK))).toBe(false);
 });

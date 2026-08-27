@@ -9,7 +9,7 @@
 // tool is used one mailbox at a time, so that is the level that has to come
 // first.
 
-import { readdirSync, existsSync, statSync, renameSync, mkdirSync } from "node:fs";
+import { readdirSync, existsSync, statSync, renameSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 // The root carries this; `prune` refuses to delete anywhere without it.
@@ -17,15 +17,40 @@ export const MARKER = ".cfmail-archive";
 
 // One lock per mailbox rather than per root, so syncing two mailboxes at once
 // is fine — they never write to the same folders.
-export { LOCK } from "./lock.mjs";
+import { LOCK } from "./lock.mjs";
+export { LOCK };
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
-// An address is already close to a safe folder name; only Windows' reserved
-// characters need replacing, and a real address contains none of them.
+// An address is already close to a safe folder name, but three things still
+// have to be handled: Windows' reserved characters, case (macOS and Windows
+// treat `A@x.com` and `a@x.com` as the same folder, so the name is lowercased
+// to make that collapse deliberate and consistent everywhere), and length —
+// a 300-character local part would fail with ENAMETOOLONG.
 export function mailboxDir(root, email) {
-  const name = String(email || "(default)").replace(/[/\\?%*:|"<>\x00-\x1f]/g, "_");
-  return join(root, name);
+  const raw = String(email || "").trim().toLowerCase() || "(default)";
+  const safe = raw.replace(/[/\\?%*:|"<>\x00-\x1f]/g, "_");
+  return join(root, truncateName(safe));
+}
+
+const MAX_NAME_BYTES = 180;
+
+// Keep the tail — the domain is what distinguishes two long addresses — and
+// mark the cut so the folder is not mistaken for a complete address.
+function truncateName(name) {
+  const enc = new TextEncoder();
+  if (enc.encode(name).length <= MAX_NAME_BYTES) return name;
+
+  const at = name.lastIndexOf("@");
+  const domain = at >= 0 ? name.slice(at) : "";
+  const budget = MAX_NAME_BYTES - enc.encode(domain).length - 1;
+
+  let head = "";
+  for (const ch of at >= 0 ? name.slice(0, at) : name) {
+    if (enc.encode(head + ch).length > budget) break;
+    head += ch;
+  }
+  return `${head}~${domain}`;
 }
 
 export function isDayDir(name) {
@@ -50,6 +75,13 @@ export function migrateFlatArchive(root, email) {
 
   const target = mailboxDir(root, email);
   mkdirSync(target, { recursive: true });
+
+  // The lock used to live at the root; nothing looks there any more, so a
+  // leftover would sit forever.
+  try {
+    const old = join(root, LOCK);
+    if (existsSync(old)) unlinkSync(old);
+  } catch { /* not ours to insist on */ }
   for (const day of days) {
     const from = join(root, day);
     const to = join(target, day);
