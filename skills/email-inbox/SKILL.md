@@ -74,7 +74,7 @@ cfmail sync                  # 之后只同步新邮件
 cfmail sync --html           # 连 HTML 正文一起
 ```
 
-目录结构是 `~/mail/2026-08-27/0930-主题/`，里面有 `meta.json`、`body.txt` 和 `attachments/`。已存过的会跳过。
+目录结构是 `~/mail/2026-08-27/0930-主题-邮件id/`，里面有 `meta.json`、`body.txt` 和 `attachments/`。已存过的会跳过，邮箱再大也会自动翻页取全。
 
 清理旧归档：
 
@@ -83,7 +83,7 @@ cfmail prune --older-than 90d          # 预演，只报告
 cfmail prune --older-than 90d --yes    # 真删
 ```
 
-**只删本地归档，服务器上的邮件不受影响。** 不加 `--yes` 只是预演。
+**只删本地归档，服务器上的邮件不受影响。** 不加 `--yes` 只是预演；`--dir` 指到非归档目录会被拒绝。
 
 ## 发邮件与回信
 

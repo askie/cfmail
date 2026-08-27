@@ -1,6 +1,7 @@
 import { readdirSync, statSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { readStoredConfig } from "../config.mjs";
+import { MARKER } from "./sync.mjs";
 import { parseArgs } from "../args.mjs";
 import { out, json, fail, isJson } from "../output.mjs";
 
@@ -11,7 +12,7 @@ export const help = `cfmail prune --older-than <age> [--dir <path>] [--yes]
 Delete archived mail older than the given age from the local folder. This only
 touches what \`cfmail sync\` wrote; mail on the server is not affected.
 
-  --older-than 30d   age threshold: 90d, 12w, 6m, 1y (d/w/m/y)
+  --older-than 30d   age threshold: d=day, w=7d, m=30d, y=365d (approximate)
   --dir <path>       folder to clean (defaults to the one sync remembered)
   --yes              actually delete; without it this is a dry run
   --dry-run          explicit dry run (the default anyway)
@@ -43,6 +44,15 @@ export async function run(argv) {
   if (!dir) fail("no archive folder. Pass --dir <path>, or run `cfmail sync --dir <path>` first.");
   if (!opts.olderThan) fail("missing --older-than <age>, for example --older-than 90d");
   if (!existsSync(dir)) fail(`archive folder does not exist: ${dir}`);
+  // Refuse to delete anywhere `cfmail sync` has not written. Without this, a
+  // --dir typo pointing at a folder that happens to hold date-named directories
+  // would wipe them.
+  if (!existsSync(join(dir, MARKER))) {
+    fail(
+      `${dir} is not a cfmail archive (no ${MARKER}).\n` +
+      `Run \`cfmail sync --dir ${dir}\` first, or point --dir at the right folder.`
+    );
+  }
 
   const cutoff = Date.now() - parseAge(opts.olderThan);
   const doomed = [];

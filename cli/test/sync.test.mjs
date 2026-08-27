@@ -13,17 +13,31 @@ const EMAIL = {
   attachments: [{ id: "a1", filename: "invoice.pdf", content_type: "application/pdf", size: 5 }],
 };
 
-// A service that answers the three calls sync makes.
-function stubMcp(email = EMAIL) {
-  return {
-    connect: async () => stubMcp(email),
+// A service that answers the three calls sync makes, paging like the real one
+// (newest first, capped page size) so the paging logic is actually exercised.
+function stubMcp(emails = [EMAIL], { attachmentFails = false } = {}) {
+  const sorted = [...emails].sort((a, b) => (b.date ?? 0) - (a.date ?? 0));
+  const calls = { list: [] };
+  const api = {
+    calls,
+    connect: async () => api,
     call: async (name, args) => {
-      if (name === "list_emails") return { emails: [{ ...email, has_attachments: !!email.attachments?.length }] };
-      if (name === "get_email") return email;
-      if (name === "get_attachment") return { content_base64: Buffer.from("hello").toString("base64") };
+      if (name === "list_emails") {
+        calls.list.push(args);
+        const { limit = 20, offset = 0 } = args || {};
+        return {
+          emails: sorted.slice(offset, offset + limit)
+            .map((e) => ({ ...e, has_attachments: !!e.attachments?.length })),
+        };
+      }
+      if (name === "get_email") return sorted.find((e) => e.id === args.id) ?? null;
+      if (name === "get_attachment") {
+        return attachmentFails ? { content_base64: null } : { content_base64: Buffer.from("hello").toString("base64") };
+      }
       return null;
     },
   };
+  return api;
 }
 
 beforeEach(() => {
@@ -42,10 +56,12 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-async function runSync(argv, email) {
-  vi.doMock("../src/mcp.mjs", () => ({ Mcp: class { constructor() { return stubMcp(email); } } }));
+async function runSync(argv, emails, opts) {
+  const stub = stubMcp(emails ?? [EMAIL], opts);
+  vi.doMock("../src/mcp.mjs", () => ({ Mcp: class { constructor() { return stub; } } }));
   const { run } = await import("../src/commands/sync.mjs");
   await run(argv);
+  return stub;
 }
 
 test("writes one folder per email, under its own date", async () => {
@@ -92,14 +108,14 @@ test("--dry-run writes nothing to disk", async () => {
 });
 
 test("a subject-less email still gets a usable folder name", async () => {
-  await runSync(["--dir", archive, "--all"], { ...EMAIL, subject: null, attachments: [] });
-  expect(readdirSync(join(archive, "2026-08-27"))[0]).toBe("0930-no-subject");
+  await runSync(["--dir", archive, "--all"], [{ ...EMAIL, subject: null, attachments: [] }]);
+  expect(readdirSync(join(archive, "2026-08-27"))[0]).toBe("0930-no-subject-e1");
 });
 
 test("an attachment with no filename falls back to its id", async () => {
-  await runSync(["--dir", archive, "--all"], {
+  await runSync(["--dir", archive, "--all"], [{
     ...EMAIL, attachments: [{ id: "att-9", filename: null, content_type: null, size: 5 }],
-  });
+  }]);
   const p = join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0]);
   expect(readdirSync(join(p, "attachments"))).toEqual(["att-9"]);
 });
@@ -109,4 +125,76 @@ test("the archive folder is remembered so later runs need no --dir", async () =>
   const cfg = JSON.parse(readFileSync(process.env.EMAIL_INBOX_CONFIG, "utf8"));
   expect(cfg.syncDir).toBe(archive);
   expect(cfg.syncCursor).toBe(EMAIL.date);
+});
+
+// --- The two ways mail could silently go missing. ------------------------------
+
+test("a mailbox larger than one page is archived in full", async () => {
+  // 250 emails, page size 100: without paging only the newest 100 would ever
+  // land, and the cursor would seal the rest off forever.
+  const many = Array.from({ length: 250 }, (_, i) => ({
+    ...EMAIL, id: `e${i}`, subject: `mail ${i}`, attachments: [],
+    date: Date.parse("2026-08-27T09:30:00") - i * 60_000,
+  }));
+
+  const stub = await runSync(["--dir", archive, "--all"], many);
+
+  const count = readdirSync(archive)
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .reduce((n, d) => n + readdirSync(join(archive, d)).length, 0);
+  expect(count).toBe(250);
+  expect(stub.calls.list.map((c) => c.offset)).toEqual([0, 100, 200]);
+});
+
+test("two emails in the same minute with the same subject both survive", async () => {
+  const twins = [
+    { ...EMAIL, id: "aaa111", attachments: [] },
+    { ...EMAIL, id: "bbb222", attachments: [] },   // same date, same subject
+  ];
+  await runSync(["--dir", archive, "--all"], twins);
+
+  const folders = readdirSync(join(archive, "2026-08-27"));
+  expect(folders).toHaveLength(2);
+  expect(folders.some((f) => f.endsWith("-aaa111"))).toBe(true);
+  expect(folders.some((f) => f.endsWith("-bbb222"))).toBe(true);
+});
+
+test("an email whose attachments cannot be fetched is retried next run", async () => {
+  await runSync(["--dir", archive, "--all"], [EMAIL], { attachmentFails: true });
+
+  const p = join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0]);
+  // No meta.json means "not fully archived", and the cursor must not move past it.
+  expect(existsSync(join(p, "meta.json"))).toBe(false);
+  expect(JSON.parse(readFileSync(process.env.EMAIL_INBOX_CONFIG, "utf8")).syncCursor).toBe(0);
+  expect(printed.join("")).toMatch(/附件没取全/);
+});
+
+test("attachments sharing a filename do not overwrite each other", async () => {
+  await runSync(["--dir", archive, "--all"], [{
+    ...EMAIL,
+    attachments: [
+      { id: "att-1", filename: "photo.jpg", content_type: "image/jpeg", size: 5 },
+      { id: "att-2", filename: "photo.jpg", content_type: "image/jpeg", size: 5 },
+    ],
+  }]);
+
+  const p = join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0]);
+  expect(readdirSync(join(p, "attachments"))).toHaveLength(2);
+});
+
+test("an overlong attachment name is truncated but keeps its extension", async () => {
+  await runSync(["--dir", archive, "--all"], [{
+    ...EMAIL,
+    attachments: [{ id: "att-1", filename: "报销单".repeat(60) + ".pdf", content_type: "application/pdf", size: 5 }],
+  }]);
+
+  const p = join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0]);
+  const [name] = readdirSync(join(p, "attachments"));
+  expect(name.endsWith(".pdf")).toBe(true);
+  expect(new TextEncoder().encode(name).length).toBeLessThanOrEqual(100);
+});
+
+test("the archive root is marked so prune can recognise it", async () => {
+  await runSync(["--dir", archive, "--all"], [{ ...EMAIL, attachments: [] }]);
+  expect(existsSync(join(archive, ".cfmail-archive"))).toBe(true);
 });

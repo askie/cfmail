@@ -1,5 +1,5 @@
-import { mkdirSync, writeFileSync, existsSync, readdirSync, statSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { join, extname } from "node:path";
 import { Mcp } from "../mcp.mjs";
 import { requireConfig, readStoredConfig, saveConfig } from "../config.mjs";
 import { parseArgs } from "../args.mjs";
@@ -13,7 +13,7 @@ export const help = `cfmail sync [--dir <path>] [--all] [--limit N] [--html] [--
 
 Archive mail to a local folder, one directory per email under a date folder:
 
-  <dir>/2026-08-27/0930-invoice-from-acme/
+  <dir>/2026-08-27/0930-invoice-from-acme-a1b2c3/
       meta.json          headers, ids, attachment list
       body.txt           plain-text body
       body.html          only with --html
@@ -22,24 +22,45 @@ Archive mail to a local folder, one directory per email under a date folder:
 Already-archived mail is skipped, so running this repeatedly is cheap and safe.
 The folder is remembered after the first --dir, and \`cfmail prune\` cleans it up.
 
-  --all       re-check everything, not just mail newer than the last sync
-  --limit N   how many emails to look at in one run (default 200)
+  --all       re-check the whole mailbox, not just mail newer than the last sync
+  --limit N   how many emails to fetch per page (1-100, default 100)
   --html      also write body.html
   --dry-run   report what would be written without touching the disk`;
 
+// Marks a folder as one this tool owns. `prune` refuses to delete without it, so
+// pointing --dir at an unrelated path cannot wipe someone's files.
+export const MARKER = ".cfmail-archive";
+
+const PAGE_MAX = 100;   // the service caps list_emails at 100 rows
+
 // Directory names end up in shells, editors and backups, so keep them boring:
-// ASCII-safe, no separators, short enough to stay readable.
+// no separators, no dot-segments, short enough to stay readable.
 function slug(text, max = 40) {
   const s = (text || "")
     .replace(/[\s　]+/g, "-")
     .replace(/[/\\?%*:|"<>.\x00-\x1f]/g, "")
     .replace(/^-+|-+$/g, "");
-  return s.slice(0, max) || "no-subject";
+  return [...s].slice(0, max).join("") || "no-subject";
 }
 
-function safeName(name, fallback) {
-  const base = (name || "").replace(/[/\\?%*:|"<>\x00-\x1f]/g, "_").replace(/^\.+/, "").trim();
-  return base || fallback;
+// Attachment names come from the sender and are not length-limited. Left alone,
+// an overlong one throws ENAMETOOLONG mid-run and the same email blocks every
+// later sync.
+function safeName(name, fallback, maxBytes = 100) {
+  let base = (name || "").replace(/[/\\?%*:|"<>\x00-\x1f]/g, "_").replace(/^\.+/, "").trim();
+  if (!base) return fallback;
+
+  const enc = new TextEncoder();
+  if (enc.encode(base).length <= maxBytes) return base;
+
+  const ext = extname(base).slice(0, 16);
+  const stem = base.slice(0, base.length - ext.length);
+  let out = "";
+  for (const ch of stem) {
+    if (enc.encode(out + ch).length > maxBytes - enc.encode(ext).length) break;
+    out += ch;
+  }
+  return (out || fallback) + ext;
 }
 
 function dayAndTime(ms) {
@@ -51,6 +72,30 @@ function dayAndTime(ms) {
   };
 }
 
+// Two emails can share a minute and a subject — mailing lists do it routinely.
+// The id suffix keeps their folders distinct and makes the folder name the
+// identity, so "already archived" is decided per email rather than per subject.
+function folderFor(row) {
+  const { day, time } = dayAndTime(row.date);
+  return join(day, `${time}-${slug(row.subject)}-${String(row.id).slice(0, 6)}`);
+}
+
+// The service returns newest-first, so a page whose oldest row is already known
+// means everything past it is known too.
+async function collect(mcp, since, pageSize) {
+  const rows = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const res = await mcp.call("list_emails", { limit: pageSize, offset });
+    const page = res?.emails || res?.results || [];
+    if (!page.length) break;
+
+    rows.push(...page.filter((e) => (e.date ?? 0) > since));
+    const oldest = page.reduce((m, e) => Math.min(m, e.date ?? 0), Infinity);
+    if (oldest <= since || page.length < pageSize) break;
+  }
+  return rows;
+}
+
 export async function run(argv) {
   const { opts } = parseArgs(argv, SPEC);
   const cfg = requireConfig("user");
@@ -58,29 +103,28 @@ export async function run(argv) {
 
   const dir = opts.dir || stored.syncDir;
   if (!dir) fail("no archive folder. Run once with --dir <path>; it is remembered afterwards.");
+  const pageSize = Math.min(Math.max(opts.limit ?? PAGE_MAX, 1), PAGE_MAX);
 
   const mcp = await new Mcp(cfg.base, cfg.key).connect();
-  const res = await mcp.call("list_emails", { limit: Math.min(Math.max(opts.limit ?? 200, 1), 100) });
-  const all = res?.emails || res?.results || [];
-
   const since = opts.all ? 0 : stored.syncCursor ?? 0;
-  const todo = all.filter((e) => (e.date ?? 0) > since);
-  const newest = all.reduce((m, e) => Math.max(m, e.date ?? 0), since);
+  const todo = await collect(mcp, since, pageSize);
+  const newest = todo.reduce((m, e) => Math.max(m, e.date ?? 0), since);
 
   const written = [];
-  const skipped = [];
+  let skipped = 0;
+  let incomplete = 0;
 
   for (const row of todo) {
-    const { day, time } = dayAndTime(row.date);
-    const folder = join(dir, day, `${time}-${slug(row.subject)}`);
+    const rel = folderFor(row);
+    const folder = join(dir, rel);
 
-    // The id file is the marker: a folder that has it was fully written.
+    // meta.json is written last, so its presence means "fully archived".
     if (existsSync(join(folder, "meta.json"))) {
-      skipped.push(folder);
+      skipped++;
       continue;
     }
     if (opts.dryRun) {
-      written.push({ folder, attachments: row.has_attachments ? "?" : 0 });
+      written.push({ rel, attachments: row.has_attachments ? "?" : 0 });
       continue;
     }
 
@@ -88,20 +132,34 @@ export async function run(argv) {
     if (!mail || mail.error) continue;
 
     mkdirSync(folder, { recursive: true });
+    writeFileSync(join(dir, MARKER), "cfmail archive\n");
     writeFileSync(join(folder, "body.txt"), mail.text ?? "");
     if (opts.html && mail.html) writeFileSync(join(folder, "body.html"), mail.html);
 
     let n = 0;
+    let missing = false;
+    const seen = new Set();
     for (const a of mail.attachments ?? []) {
       const got = await mcp.call("get_attachment", { attachment_id: a.id });
-      if (!got || got.content_base64 == null) continue;
+      if (!got || got.content_base64 == null) { missing = true; continue; }
+
+      // Two attachments may share a filename; keep both.
+      let name = safeName(a.filename, a.id);
+      if (seen.has(name)) name = `${String(a.id).slice(0, 6)}-${name}`;
+      seen.add(name);
+
       const attDir = join(folder, "attachments");
       mkdirSync(attDir, { recursive: true });
-      writeFileSync(join(attDir, safeName(a.filename, a.id)), Buffer.from(got.content_base64, "base64"));
+      writeFileSync(join(attDir, name), Buffer.from(got.content_base64, "base64"));
       n++;
     }
 
-    // Written last: its presence means this email is completely archived.
+    // Without every attachment this is not a complete archive: leave meta.json
+    // off so the next run fetches the email again instead of calling it done.
+    if (missing) {
+      incomplete++;
+      continue;
+    }
     writeFileSync(
       join(folder, "meta.json"),
       JSON.stringify({
@@ -111,25 +169,29 @@ export async function run(argv) {
         attachments: mail.attachments ?? [],
       }, null, 2) + "\n"
     );
-    written.push({ folder, attachments: n });
+    written.push({ rel, attachments: n });
   }
 
-  if (!opts.dryRun && newest > (stored.syncCursor ?? 0)) {
-    saveConfig({ ...readStoredConfig("user"), syncDir: dir, syncCursor: newest }, "user");
-  } else if (!opts.dryRun && opts.dir) {
-    saveConfig({ ...readStoredConfig("user"), syncDir: dir }, "user");
+  if (!opts.dryRun) {
+    // An email whose attachments failed must not be sealed off by the cursor.
+    const cursor = incomplete ? (stored.syncCursor ?? 0) : Math.max(newest, stored.syncCursor ?? 0);
+    saveConfig({ ...readStoredConfig("user"), syncDir: dir, syncCursor: cursor }, "user");
   }
 
   if (isJson()) {
-    return json({ ok: true, dir, written: written.length, skipped: skipped.length, dry_run: !!opts.dryRun, items: written });
+    return json({
+      ok: true, dir, written: written.length, skipped, incomplete,
+      dry_run: !!opts.dryRun, items: written,
+    });
   }
   out(
     `${opts.dryRun ? "将归档" : "已归档"} ${written.length} 封` +
-    (skipped.length ? `，跳过 ${skipped.length} 封（已存在）` : "") +
+    (skipped ? `，跳过 ${skipped} 封（已存在）` : "") +
+    (incomplete ? `，${incomplete} 封附件没取全（下次重试）` : "") +
     `\n目录: ${dir}`
   );
   for (const w of written.slice(0, 10)) {
-    out(`  ${w.folder.replace(dir, "").replace(/^\//, "")}${w.attachments ? `  📎${w.attachments}` : ""}`);
+    out(`  ${w.rel}${w.attachments ? `  📎${w.attachments}` : ""}`);
   }
   if (written.length > 10) out(`  …还有 ${written.length - 10} 封`);
   if (!opts.dryRun && written.length) out(`\n最新归档到: ${formatDate(newest)}`);

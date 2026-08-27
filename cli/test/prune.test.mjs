@@ -26,6 +26,7 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "cfmail-prune-"));
   archive = join(dir, "mail");
   mkdirSync(archive, { recursive: true });
+  writeFileSync(join(archive, ".cfmail-archive"), "cfmail archive\n");
   process.env.EMAIL_INBOX_CONFIG = join(dir, "cfg.json");
   printed = [];
   vi.spyOn(process.stdout, "write").mockImplementation((s) => { printed.push(s); return true; });
@@ -81,7 +82,7 @@ test("anything that is not a sync day folder is left alone", async () => {
 
   expect(existsSync(join(archive, "important-notes"))).toBe(true);
   expect(existsSync(join(archive, "README.md"))).toBe(true);
-  expect(readdirSync(archive).sort()).toEqual(["README.md", "important-notes"]);
+  expect(readdirSync(archive).sort()).toEqual([".cfmail-archive", "README.md", "important-notes"]);
 });
 
 test("weeks, months and years are accepted as ages", async () => {
@@ -110,4 +111,23 @@ test("--json reports what was removed", async () => {
   const r = JSON.parse(output());
   expect(r).toMatchObject({ ok: true, applied: true, days: 1, emails: 2 });
   expect(r.removed).toEqual([daysAgo(100)]);
+});
+
+test("refuses to touch a folder that is not a cfmail archive", async () => {
+  const stranger = join(dir, "not-an-archive");
+  mkdirSync(join(stranger, "2020-01-01"), { recursive: true });
+  const exit = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("EXIT"); });
+  const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+  await expect(run(["--dir", stranger, "--older-than", "30d", "--yes"])).rejects.toThrow("EXIT");
+
+  expect(existsSync(join(stranger, "2020-01-01"))).toBe(true);
+  expect(err.mock.calls.map((c) => c[0]).join("")).toMatch(/not a cfmail archive/);
+  exit.mockRestore();
+});
+
+test("the marker file itself is never deleted", async () => {
+  day(daysAgo(100));
+  await run(["--dir", archive, "--older-than", "30d", "--yes"]);
+  expect(existsSync(join(archive, ".cfmail-archive"))).toBe(true);
 });
