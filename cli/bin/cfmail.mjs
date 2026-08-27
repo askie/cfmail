@@ -93,6 +93,14 @@ const USAGE = `cfmail — 收发 cloudflare-email 邮箱的命令行工具
   EMAIL_INBOX_KEY     API Key
   管理端同理 EMAIL_ADMIN_*（BASE / KEY / CONFIG）。`;
 
+// `cfmail list | head -3` closes the pipe while we are still writing, and node
+// turns that into an unhandled 'error' event: a stack trace where the user
+// expected three lines. Downstream leaving early is normal, not a failure.
+process.stdout.on("error", (e) => {
+  if (e?.code === "EPIPE") process.exit(0);
+  throw e;
+});
+
 async function main() {
   const argv = process.argv.slice(2);
   const name = argv[0];
