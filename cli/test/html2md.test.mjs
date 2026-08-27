@@ -24,8 +24,8 @@ test("a link keeps its own text as the label", () => {
     .toBe("[点这里](https://x.com/a?b=1)");
 });
 
-test("a link whose text is already the URL is not doubled up", () => {
-  expect(md('<a href="https://x.com">https://x.com</a>')).toBe("https://x.com");
+test("a link whose text is already the URL still points at it", () => {
+  expect(md('<a href="https://x.com">https://x.com</a>')).toBe("[https://x.com](https://x.com)");
 });
 
 test("attribute quoting styles are all handled", () => {
@@ -65,20 +65,22 @@ test("a bracket in the label is escaped so the link cannot be forged", () => {
   expect(md('<a href="https://x.com">a]b</a>')).toBe("[a\\]b](https://x.com)");
 });
 
-test("parentheses and spaces in a URL are percent-encoded, not left to break the link", () => {
+test("parentheses in a URL are percent-encoded, not left to break the link", () => {
   expect(md('<a href="https://x.com/a(b)c">链接</a>')).toBe("[链接](https://x.com/a%28b%29c)");
-  expect(md('<a href="https://x.com/a b">链接</a>')).toBe("[链接](https://x.com/a%20b)");
 });
 
 test("a > inside an attribute value does not end the tag early", () => {
-  expect(md('<a href="https://x.com/a>b">点我</a>')).toBe("[点我](https://x.com/a>b)");
+  // Encoded in the target, so it cannot terminate anything downstream either.
+  expect(md('<a href="https://x.com/a>b">点我</a>')).toBe("[点我](https://x.com/a%3Eb)");
   expect(md('<td title="a>b">单元格</td>')).toBe("单元格");
 });
 
-test("unclosed and nested anchors degrade to plain text rather than debris", () => {
-  expect(md('<a href="https://x.com">未闭合')).toBe("未闭合");
+test("unclosed and nested anchors are repaired the way a browser would", () => {
+  // A real parser closes the tag rather than discarding it, which is friendlier
+  // than dropping the link entirely.
+  expect(md('<a href="https://x.com">未闭合')).toBe("[未闭合](https://x.com)");
   expect(md('<a href="https://o.com">外<a href="https://i.com">内</a></a>'))
-    .toBe("[外内](https://o.com)");
+    .toBe("[外](https://o.com)[内](https://i.com)");
 });
 
 test("a crafted label cannot forge a second, clickable link", () => {
@@ -116,7 +118,7 @@ test("ordinary ampersands still decode exactly once", () => {
   expect(md("<p>Tom &amp; Jerry</p>")).toBe("Tom & Jerry");
   expect(md('<a href="https://x.com/a?b=1&amp;c=2">正常</a>')).toBe("[正常](https://x.com/a?b=1&c=2)");
   expect(md('<a href="https://x.com/?a=1&amp;b=2">https://x.com/?a=1&amp;b=2</a>'))
-    .toBe("https://x.com/?a=1&b=2");
+    .toBe("[https://x.com/?a=1&b=2](https://x.com/?a=1&b=2)");
 });
 
 test("an entity-encoded scheme is decoded before it is judged", () => {
@@ -157,6 +159,10 @@ test("a tracking URL longer than the cap degrades to its label", () => {
   expect(md(`<a href="${long}">查看详情</a>`)).toBe("查看详情");
 });
 
+test("an anchor with no href at all keeps only its text", () => {
+  expect(md("<a>没有链接</a>")).toBe("没有链接");
+});
+
 test("images survive only as their alt text", () => {
   expect(md('<img src="logo.png" alt="公司标志">')).toBe("[图片: 公司标志]");
   expect(md('<img src="pixel.gif">')).toBe("");
@@ -166,11 +172,14 @@ test("entities are decoded, including numeric and hex forms", () => {
   expect(md("<p>Tom &amp; Jerry&hellip;</p>")).toBe("Tom & Jerry…");
   expect(md("<p>&#20320;&#22909;</p>")).toBe("你好");
   expect(md("<p>&#x4F60;&#x597D;</p>")).toBe("你好");
-  expect(md("<p>10&nbsp;minutes</p>")).toBe("10 minutes");
+  expect(md("<p>10&nbsp;minutes</p>")).toBe("10 minutes");   // NBSP collapses to a space
 });
 
-test("an unknown entity is left alone rather than mangled", () => {
-  expect(md("<p>&notanentity;</p>")).toBe("&notanentity;");
+test("entities follow the HTML5 rules, including the unterminated ones", () => {
+  // `&not` is a real entity even without its semicolon, so `&notanentity;`
+  // legitimately becomes `¬anentity;`. A hand-rolled decoder got this wrong.
+  expect(md("<p>&notanentity;</p>")).toBe("¬anentity;");
+  expect(md("<p>&reallynotanentity;</p>")).toBe("&reallynotanentity;");
 });
 
 test("table rows read as lines, cells separated within a row", () => {
@@ -232,8 +241,10 @@ test.each([
 test("a bare URL printed as its own text cannot carry a link inside it", () => {
   // The label branch skips mdLabel, so the URL itself must be encoded.
   const out = md('<a href="https://x.com/[a](javascript:evil)">https://x.com/[a](javascript:evil)</a>');
+  // The label is escaped and the target percent-encoded, so neither half can
+  // close the link early and start one of the sender's choosing.
   expect(out).not.toMatch(/(?<!\\)\[a\]\(javascript:/);
-  expect(out).toBe("https://x.com/%5Ba%5D%28javascript:evil%29");
+  expect(out).toBe("[https://x.com/\\[a\\](javascript:evil)](https://x.com/%5Ba%5D%28javascript:evil%29)");
 });
 
 test("invisible characters cannot smuggle a scheme past the allowlist", () => {

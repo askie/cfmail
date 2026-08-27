@@ -1,6 +1,6 @@
 # cfmail
 
-收发 [cloudflare-email](../README.md) 邮箱的命令行工具。零依赖，只要 Node 20+。
+收发 [cloudflare-email](../README.md) 邮箱的命令行工具。只要 Node 20+，`npm i -g` 会自动装上依赖。
 
 ```bash
 npm i -g ./cli          # 从本仓库安装
