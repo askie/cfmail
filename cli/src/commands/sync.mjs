@@ -36,6 +36,8 @@ export const help = `用法: cfmail sync [--dir <目录>] [选项]
                 点一下就能打开。第一次给了之后会记住
   --no-notify   本次不推送
 
+配合 --dry-run 时不会真的推送，--notify 给的 key 也不会被记住。
+
 附件没取全的邮件不会被标记为已归档，下次跑会重新取。
 
 推送过的邮件目录里会留一个 .notified 标记，所以同一封邮件只会被推送一次，
@@ -125,6 +127,16 @@ async function collect(mcp, since, pageSize) {
 // One run should not flood a chat; the rest go out on the next sync.
 const NOTIFY_PER_RUN = 20;
 
+// A folder can disappear between readdir and stat (a concurrent prune, a manual
+// delete); treat that as "not there" instead of failing the whole run.
+function isDir(path) {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 // Every archived email that has not been announced yet, oldest first so a chat
 // reads in the order mail arrived.
 function pendingNotifications(dir) {
@@ -132,11 +144,11 @@ function pendingNotifications(dir) {
   for (const day of readdirSync(dir)) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
     const dayPath = join(dir, day);
-    if (!statSync(dayPath).isDirectory()) continue;
+    if (!isDir(dayPath)) continue;
 
     for (const name of readdirSync(dayPath)) {
       const folder = join(dayPath, name);
-      if (!statSync(folder).isDirectory()) continue;
+      if (!isDir(folder)) continue;
       // No meta.json means the archive is incomplete; wait until it is whole.
       if (!existsSync(join(folder, "meta.json"))) continue;
       if (existsSync(join(folder, NOTIFIED))) continue;
@@ -165,8 +177,10 @@ function pendingNotifications(dir) {
   return out.sort((a, b) => (a.meta.date ?? 0) - (b.meta.date ?? 0));
 }
 
-function markNotified(item) {
-  writeFileSync(join(item.folder, NOTIFIED), new Date(item.meta.date || Date.now()).toISOString() + "\n");
+// Records when the push succeeded — the email's own date is already in
+// meta.json, and after a retry it would answer the wrong question.
+function markNotified(item, at) {
+  writeFileSync(join(item.folder, NOTIFIED), at + "\n");
 }
 
 export async function run(argv) {
@@ -174,7 +188,11 @@ export async function run(argv) {
   const cfg = requireConfig("user");
   const stored = readStoredConfig("user");
 
-  const dir = opts.dir && resolve(opts.dir) || stored.syncDir;
+  // Absolute either way: a relative path stored by an older version would make
+  // every file:// link in a notification point nowhere, and would be written
+  // straight back on save, so it could never correct itself.
+  const chosen = opts.dir || stored.syncDir;
+  const dir = chosen && resolve(chosen);
   if (!dir) fail("no archive folder. Run once with --dir <path>; it is remembered afterwards.");
 
   if (opts.notify && !isGrixKey(opts.notify)) {
@@ -282,14 +300,15 @@ export async function run(argv) {
     // chat. Mark what is already archived as seen; announce only what arrives
     // from here on.
     if (!stored.notifyKey) {
-      for (const item of pending) markNotified(item);
+      const at = new Date().toISOString();
+      for (const item of pending) markNotified(item, at);
       backfilled = pending.length;
     } else {
       for (const item of pending.slice(0, NOTIFY_PER_RUN)) {
         try {
           await sendToGrix(notifyKey, buildMessage(item));
           // Marker written only after the POST succeeded.
-          markNotified(item);
+          markNotified(item, new Date().toISOString());
           notified.push(item.rel);
         } catch (e) {
           notifyFailed.push({ rel: item.rel, error: e?.message ?? String(e) });

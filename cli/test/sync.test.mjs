@@ -304,3 +304,45 @@ test("a --notify value that is not a Grix key is rejected", async () => {
   await expect(runSync(["--dir", archive, "--notify", "https://example.com"])).rejects.toThrow("EXIT");
   exit.mockRestore();
 });
+
+test("a relative archive path from an older config is made absolute", async () => {
+  // A relative syncDir would produce file://mail/... links that open nothing,
+  // and saving it back would keep it broken forever.
+  writeFileSync(process.env.EMAIL_INBOX_CONFIG, JSON.stringify({
+    base: "https://h", key: "k", syncDir: "relative-archive", notifyKey: KEY,
+  }));
+  const cwd = process.cwd();
+  process.chdir(dir);
+
+  try {
+    const later = { ...EMAIL, id: "e9", subject: "绝对路径", attachments: [] };
+    const stub = await runSync(["--all"], [later]);
+
+    expect(stub.sent).toHaveLength(1);
+    const link = stub.sent[0].payload.content.match(/file:\/\/\S+/)[0];
+    expect(link.startsWith("file:///")).toBe(true);
+    expect(link).not.toContain("file://relative-archive");
+    expect(storedConfig().syncDir.startsWith("/")).toBe(true);
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test("the marker records when the push happened, not the email's date", async () => {
+  await runSync(["--dir", archive, "--all", "--notify", KEY]);
+  vi.resetModules();
+
+  const later = { ...EMAIL, id: "e2", subject: "时间戳", date: Date.parse("2020-01-01T00:00:00"), attachments: [] };
+  await runSync(["--dir", archive, "--all"], [EMAIL, later]);
+
+  const folder = readdirSync(join(archive, "2020-01-01"))[0];
+  const stamp = readFileSync(join(archive, "2020-01-01", folder, ".notified"), "utf8").trim();
+  // The email is from 2020; the push is now.
+  expect(new Date(stamp).getFullYear()).toBe(new Date().getFullYear());
+});
+
+test("--dry-run neither pushes nor remembers the key", async () => {
+  const stub = await runSync(["--dir", archive, "--all", "--notify", KEY, "--dry-run"]);
+  expect(stub.sent).toHaveLength(0);
+  expect(storedConfig().notifyKey).toBeUndefined();
+});
