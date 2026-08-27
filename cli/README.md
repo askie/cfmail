@@ -102,7 +102,7 @@ cfmail sync --dry-run         # 只看会存什么，不落盘
 存出来长这样：
 
 ```
-~/cfmail/me@example.com/2026-08-27/0930-发票-Q3-a1b2c3/
+~/cfmail/me@example.com/2026-08-27/0930-3f8a2c1b04/
     meta.json          发件人、主题、时间、附件清单
     body.txt           纯文本正文
     body.md            仅当邮件没有纯文本正文时：由 HTML 转成的 Markdown
@@ -116,6 +116,10 @@ cfmail sync --dry-run         # 只看会存什么，不落盘
 > 标题、加粗、列表、链接都保留，推送到 Grix 的通知也用它——不会再出现"收到新邮件但正文一片空白"。
 
 **先按邮箱分，再按天分**——多个邮箱可以共用同一个 `--dir`，各归各的不会混在一起，一眼就能看出哪封信属于哪个邮箱。`prune` 也只清理当前邮箱的那份。
+
+邮件目录名是「时间 + 邮件标识的哈希」，**不含标题**。标题是发件人写的任意文本，拿它当文件名永远有边界情况（斜杠、emoji、超长、shell 元字符……）；完整标题在 `meta.json` 里，那里不需要任何转义。要找某封邮件用 `cfmail search`，不用翻目录名。
+
+哈希取自邮件自带的 `Message-ID`，所以**同一封邮件无论收几次都落在同一个目录**——这比按存储 id 命名更稳，后者每次入库都会变。
 
 > 早先版本把日期目录直接放在根下（那时还没有多邮箱）。第一次跑新版会自动把它们移到当前邮箱名下，内容原样保留，你不用做什么。
 
@@ -167,9 +171,9 @@ cfmail sync --no-notify                           # 这次不推
 对账单已生成，请查收。
 
 附件 1 个:
-- [对账单 8月.xlsx](file:///Users/you/cfmail/me@example.com/2026-08-27/0930-8月对账单-a1b2c3/attachments/对账单%208月.xlsx)  36 KB
+- [对账单 8月.xlsx](file:///Users/you/cfmail/me@example.com/2026-08-27/0930-3f8a2c1b04/attachments/对账单%208月.xlsx)  36 KB
 
-📁 [打开邮件目录](file:///Users/you/cfmail/me@example.com/2026-08-27/0930-8月对账单-a1b2c3)
+📁 [打开邮件目录](file:///Users/you/cfmail/me@example.com/2026-08-27/0930-3f8a2c1b04)
 ```
 
 点文件名直接打开附件，点目录打开整封邮件的归档文件夹。
