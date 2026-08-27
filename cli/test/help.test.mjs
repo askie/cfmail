@@ -57,7 +57,7 @@ test("the flags read out of a SPEC are the real ones", () => {
 test("every command's help opens with a usage line naming that command", () => {
   for (const cmd of [...Object.keys(COMMANDS), "stats", "config", "admin"]) {
     const first = help(cmd).split("\n")[0];
-    expect(first, `${cmd} has no usage line`).toMatch(/^用法: cfmail /);
+    expect(first, `${cmd} has no usage line`).toMatch(/^Usage: cfmail /);
     expect(first, `${cmd}'s usage line names another command`).toContain(cmd);
   }
 });
@@ -67,7 +67,7 @@ test("admin's subcommands each answer --help with their own usage line", () => {
     const first = execFileSync("node", [BIN, "admin", sub, "--help"], { encoding: "utf8" })
       .split("\n")[0];
     // Must be the subcommand's own line, not the admin overview it falls back to.
-    expect(first, `admin ${sub}`).toMatch(new RegExp(`^用法: cfmail admin ${sub}(\\s|$)`));
+    expect(first, `admin ${sub}`).toMatch(new RegExp(`^Usage: cfmail admin ${sub}(\\s|$)`));
   }
 });
 
@@ -130,7 +130,7 @@ test("the overview explains how several programs share one machine", () => {
   const text = execFileSync("node", [BIN, "--help"], { encoding: "utf8" });
 
   expect(text).toMatch(/EMAIL_INBOX_CONFIG/);
-  expect(text).toMatch(/一份配置/);
+  expect(text).toMatch(/One config = one mailbox/);
 });
 
 test("the overview no longer advertises the shared-state commands", () => {
@@ -158,11 +158,11 @@ test("setup still takes --email: there it names the mailbox, not a selection", (
   expect(help("setup")).toContain("--email");
 });
 
-test("no command's help still talks about a \u300c\u5f53\u524d\u90ae\u7bb1\u300d", () => {
+test("no command's help still talks about a \"current mailbox\"", () => {
   // The concept is gone: one config file is one mailbox. Help that still names
   // it sends the reader looking for a setting that no longer exists.
   for (const cmd of [...Object.keys(COMMANDS), "stats", "config", "admin"]) {
-    expect(help(cmd), cmd).not.toContain("\u5f53\u524d\u90ae\u7bb1");
+    expect(help(cmd), cmd).not.toMatch(/current mailbox/i);
   }
 });
 
@@ -170,8 +170,8 @@ test("the overview mentions it only to say there isn't one", () => {
   // The overview is the one place worth naming it, because a reader arriving
   // from the old CLI is looking for it.
   const text = execFileSync("node", [BIN, "--help"], { encoding: "utf8" });
-  for (const line of text.split("\n").filter((l) => l.includes("\u5f53\u524d\u90ae\u7bb1"))) {
-    expect(line, line.trim()).toMatch(/\u6ca1\u6709\u300c\u5f53\u524d\u90ae\u7bb1\u300d/);
+  for (const line of text.split("\n").filter((l) => /current mailbox/i.test(l))) {
+    expect(line, line.trim()).toMatch(/no .*"current mailbox"/i);
   }
 });
 
@@ -179,7 +179,7 @@ test("the overview says where a new mailbox's key comes from", () => {
   // "How do I add a mailbox" is answered by two commands owned by two roles;
   // an overview listing only `setup` leaves the reader without a key.
   const text = execFileSync("node", [BIN, "--help"], { encoding: "utf8" });
-  const config = text.slice(text.indexOf("\n\u914d\u7f6e\n"), text.indexOf("\n\u7ba1\u7406\uff08"));
+  const config = text.slice(text.indexOf("\nConfiguration\n"), text.indexOf("\nAdmin ("));
 
   expect(config).toContain("admin create-key");
   expect(config).toContain("cfmail setup");

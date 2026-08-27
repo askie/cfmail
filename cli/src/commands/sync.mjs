@@ -14,56 +14,69 @@ const SPEC = {
   "--notify": "string", "--no-notify": "bool",
 };
 
-export const help = `用法: cfmail sync [--dir <目录>] [选项]
+export const help = `Usage: cfmail sync [--dir <path>] [options]
 
-把邮件（正文 + 附件）按天归档到本地目录。
+Archive mail — body plus attachments — to a local directory, laid out by day.
 
-存出来的样子:
-  <目录>/me@example.com/2026-08-27/0930-3f8a2c1b04/
-      meta.json          发件人、收件人、主题、时间、附件清单
-      body.txt           纯文本正文
-      body.md            仅当邮件没有纯文本正文时：由 HTML 转成的 Markdown
-      body.html          仅 --html 时
-      attachments/       附件，保留原始文件名
+What it looks like on disk:
+  <dir>/me@example.com/2026-08-27/0930-3f8a2c1b04/
+      meta.json          sender, recipients, subject, date, attachment list
+      body.txt           plain-text body
+      body.md            only when the email has no plain-text body: HTML converted to Markdown
+      body.html          only with --html
+      attachments/       attachments, original filenames kept
 
-先按邮箱分，再按天分。几个邮箱可以共用同一个 --dir，各归各的不会混在一起。
+Filed by mailbox first, then by day. Several mailboxes can share one --dir —
+each stays in its own place and nothing gets mixed up.
 
-目录名是「时间 + 邮件标识的哈希」，不含标题——标题是发件人写的任意文本，
-做文件名永远有边界情况；完整标题在 meta.json 里。哈希取自邮件自带的
-Message-ID，同一封邮件无论收几次都是同一个目录。
+The folder name is "time + a hash of the email's identity", not the subject —
+a subject is arbitrary text a sender wrote, and using it as a filename always
+runs into edge cases; the full subject is in meta.json. The hash comes from
+the email's own Message-ID, so the same email always lands in the same folder
+no matter how many times it's redelivered.
 
-已归档过的会跳过，反复跑很便宜，适合放进定时任务。邮箱再大也会自动翻页取全。
+Already-archived mail is skipped, so running this repeatedly is cheap — good
+for a scheduled job. Paginates automatically no matter how large the mailbox is.
 
-早先版本把日期目录直接放在根下（那时还没按邮箱分层）。第一次跑新版会自动把它们
-移到邮箱名下，内容原样保留。
+Older versions put day folders directly at the root (before filing by
+mailbox existed). The first run of the new version moves them under the
+mailbox automatically, with nothing lost.
 
-参数:
-  --dir <目录>   归档到哪。第一次给了之后会记住，以后直接 cfmail sync 即可
-  --all         重新检查整个邮箱，而不只是上次同步之后的新邮件
-  --limit N     每页取几封，1-100，默认 100。只影响翻页粒度，不影响取全
-  --html        连 HTML 正文一起存
-  --dry-run     只报告会存什么，不动磁盘
+Options:
+  --dir <path>   Where to archive to. Remembered after the first time you give
+                 it, so later runs are just cfmail sync
+  --all          Re-check the whole mailbox instead of only what's new since
+                 the last sync
+  --limit N      How many per page, 1-100, default 100. Only affects paging
+                 granularity, not completeness
+  --html         Also store the HTML body
+  --dry-run      Report what would be stored, without touching disk
   --notify <whk_key>
-                归档完把每封新邮件推到 Grix，消息里带附件的本地 file:// 链接，
-                点一下就能打开。第一次给了之后会记住
-  --no-notify   本次不推送
+                 After archiving, push each new email to Grix with a clickable
+                 local file:// link to its attachments. Remembered after the
+                 first time you give it
+  --no-notify    Skip pushing for this run
 
-配合 --dry-run 时不会真的推送，--notify 给的 key 也不会被记住。
+Combined with --dry-run, nothing is actually pushed and a given --notify key
+isn't remembered either.
 
-附件没取全的邮件不会被标记为已归档，下次跑会重新取。
+An email whose attachments couldn't be fully fetched isn't marked archived —
+the next run retries it.
 
-推送过的邮件目录里会留一个 .notified 标记，所以同一封邮件只会被推送一次，
-反复跑 sync 不会重复打扰。
+A pushed email's folder gets a .notified marker, so the same email is only
+ever pushed once — running sync repeatedly won't spam you again.
 
-同一个归档目录同时只允许一个 sync。撞上了就跳过这次（不算失败），
-所以定时任务间隔短于单次耗时也不会乱，不需要 flock 之类的外部工具。
+Only one sync runs against a given archive directory at a time. A collision
+is skipped, not treated as a failure, so a scheduled job with an interval
+shorter than one run still behaves — no external locking tool (like flock)
+needed.
 
-示例:
-  cfmail sync --dir ~/cfmail    第一次，指定目录
-  cfmail sync                   之后只同步新邮件
-  cfmail sync --all --html      全量重查，连 HTML 一起存
+Examples:
+  cfmail sync --dir ~/cfmail    first run, pick a directory
+  cfmail sync                   only new mail after that
+  cfmail sync --all --html      full re-check, store HTML too
 
-清理旧归档见 cfmail prune --help`;
+To clean up old archives, see cfmail prune --help`;
 
 // Marks a folder as one this tool owns. `prune` refuses to delete without it, so
 // pointing --dir at an unrelated path cannot wipe someone's files.

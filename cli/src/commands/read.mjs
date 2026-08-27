@@ -5,19 +5,19 @@ import { out, json, fail, isJson, formatDate } from "../output.mjs";
 
 const SPEC = { "--html": "bool" };
 
-export const help = `用法: cfmail read <邮件id> [--html]
+export const help = `Usage: cfmail read <email-id> [--html]
 
-打印一封邮件的完整内容：头部、正文、附件清单。
+Print one email in full: headers, body, attachment list.
 
-参数:
-  <邮件id>    必需。从 unread / list / search 的输出里拿
-  --html      连 HTML 正文一起打印（默认只打印纯文本正文）
+Options:
+  <email-id>  Required. Comes from the output of unread / list / search
+  --html      Also print the HTML body (only the plain-text body by default)
 
-输出末尾会列出每个附件的 id，拿它去:
-  cfmail attachment <附件id> --out <路径>       下载到本地
-  cfmail reply <邮件id> --forward-attachment <附件id>   直接转发，不用先下载
+The output lists each attachment's id at the end, use it with:
+  cfmail attachment <attachment-id> --out <path>       download it locally
+  cfmail reply <email-id> --forward-attachment <attachment-id>   forward it without downloading first
 
-示例:
+Examples:
   cfmail read 57d74fd6-c6b0-4b0f-a1ba-59f8f7d0b6cf
   cfmail read 57d74fd6 --html`;
 

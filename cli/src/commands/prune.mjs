@@ -8,36 +8,45 @@ import { out, json, fail, isJson } from "../output.mjs";
 
 const SPEC = { "--dir": "string", "--older-than": "string", "--yes": "bool", "--dry-run": "bool" };
 
-export const help = `用法: cfmail prune --older-than <期限> [--dir <目录>] [--yes]
+export const help = `Usage: cfmail prune --older-than <age> [--dir <path>] [--yes]
 
-删除本地归档里超过指定时长的邮件。只删本地，服务器上的邮件一封都不动。
+Delete local archive entries older than the given age. Local only — nothing
+on the server is ever touched.
 
-只清理这份配置那个邮箱的归档（<目录>/<邮箱>/ 下面），同一个目录下别的邮箱不受影响。
+Only cleans up this config's mailbox's archive (under <dir>/<mailbox>/) —
+other mailboxes sharing the same directory are untouched.
 
-参数:
-  --older-than <期限>  必需。数字加单位: d=天 w=周(7天) m=月(30天) y=年(365天)
-  --dir <目录>         要清理的目录。默认用 sync 记住的那个
-  --yes                真正删除。不给就只是预演
-  --dry-run            显式预演（本来就是默认行为）
+Options:
+  --older-than <age>  Required. A number plus a unit: d=days w=weeks(7d)
+                      m=months(30d) y=years(365d)
+  --dir <path>        Which directory to clean. Defaults to the one sync remembered
+  --yes               Actually delete. Without it, this is a dry run
+  --dry-run           Explicit dry run (already the default behavior)
 
-删除不可逆，所以默认只报告会删什么。看清单没问题了再加 --yes。
+Deletion is irreversible, so the default is to only report what would be
+deleted. Add --yes once the list looks right.
 
-两道防误删:
-  · 只在 sync 标记过的归档目录里动手（根目录有 .cfmail-archive 文件），
-    --dir 指错地方会直接拒绝
-  · 只删日期目录（YYYY-MM-DD），你放在同一目录下的其它文件不会被碰
+Two safeguards against deleting the wrong thing:
+  · Only acts inside a directory sync has marked as an archive (it has a
+    .cfmail-archive file at its root) — pointing --dir somewhere else is
+    flatly refused
+  · Only deletes date folders (YYYY-MM-DD) — any other file you keep in the
+    same directory is left alone
 
-按邮件自身日期判断，不看文件修改时间，所以拷贝或恢复备份不会让归档「重新变新」。
-整天都过期才删，所以 --older-than 30d 不会删掉第 30 天那天的邮件。
+Judged by the email's own date, not the file's modification time, so copying
+or restoring a backup can't make an archive "look new again". A day only
+counts once it's fully elapsed, so --older-than 30d never deletes mail from
+day 30 itself.
 
-示例:
-  cfmail prune --older-than 90d           预演，看看会删什么
-  cfmail prune --older-than 90d --yes     确认后真删
+Examples:
+  cfmail prune --older-than 90d           dry run, see what would be deleted
+  cfmail prune --older-than 90d --yes     delete for real
   cfmail prune --older-than 6m --dir ~/cfmail --yes
 
-真正删除时会和 sync 互斥：sync 正在写这个目录就跳过这次，不会删到一半的邮件。
+An actual delete run is mutually exclusive with sync: if sync is writing to
+this directory, this run is skipped rather than deleting mail mid-write.
 
-放进 cron 自动跑:
+Drop it into cron to run on its own:
   0 4 * * *  cfmail sync && cfmail prune --older-than 90d --yes`;
 
 const UNITS = { d: 1, w: 7, m: 30, y: 365 };
