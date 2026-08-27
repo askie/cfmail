@@ -87,3 +87,15 @@ test("the overview points at per-command help", () => {
   const text = execFileSync("node", [BIN, "--help"], { encoding: "utf8" });
   expect(text).toContain("cfmail send --help");
 });
+
+test("a mistyped admin subcommand fails loudly even with --help", () => {
+  // Printing the overview and exiting 0 would hide the typo in a script.
+  let code = 0;
+  try {
+    execFileSync("node", [BIN, "admin", "bogus", "--help"], { encoding: "utf8", stdio: "pipe" });
+  } catch (e) {
+    code = e.status;
+    expect(e.stderr).toMatch(/unknown admin command: bogus/);
+  }
+  expect(code).toBe(1);
+});

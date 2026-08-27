@@ -201,10 +201,13 @@ const SUB_HELP = {
 };
 
 // Called by the entry point with the raw args, so `cfmail admin webhook --help`
-// gets the webhook help rather than this overview.
+// gets the webhook help rather than this overview. Returns undefined for a
+// subcommand that does not exist, letting the entry point fall through to run()
+// so a typo still fails loudly instead of printing help and exiting 0.
 export function help(argv = []) {
   const sub = argv.find((a) => !a.startsWith("-"));
-  return (sub && SUB_HELP[sub]) || OVERVIEW;
+  if (!sub) return OVERVIEW;
+  return SUB_HELP[sub];
 }
 
 export async function run(argv) {

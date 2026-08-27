@@ -87,9 +87,12 @@ async function main() {
     rest = rest.filter((a) => a !== "--json");
   }
   // A command that dispatches further exports `help` as a function, so it can
-  // answer for whichever subcommand was asked about.
+  // answer for whichever subcommand was asked about. Returning nothing means it
+  // did not recognise the subcommand — fall through to run(), which reports the
+  // typo rather than printing help and exiting 0.
   if (rest.includes("--help") || rest.includes("-h")) {
-    return out(typeof cmd.help === "function" ? cmd.help(rest) : cmd.help);
+    const text = typeof cmd.help === "function" ? cmd.help(rest) : cmd.help;
+    if (text) return out(text);
   }
 
   await cmd.run(rest);
