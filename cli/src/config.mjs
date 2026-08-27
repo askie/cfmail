@@ -6,7 +6,8 @@
 // current — the shape aws-cli and kubectl use, and for the same reason: most
 // commands should not have to name an account, but any command must be able to.
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, renameSync, unlinkSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fail } from "./output.mjs";
@@ -42,11 +43,24 @@ function readFile(scope) {
   }
 }
 
+// Write through a temporary file and rename into place. Several agents can be
+// running this CLI against the same config at once; a plain write leaves the
+// file truncated for an instant, and another process reading right then sees
+// invalid JSON and exits. rename() is atomic, so a reader sees either the old
+// file or the new one and never a half-written state.
 function writeFile(data, scope) {
   const path = configPath(scope);
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(data, null, 2) + "\n", { mode: 0o600 });
-  // `mode` only applies when the file is created, so a file written by an older
+
+  const tmp = `${path}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
+  try {
+    writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n", { mode: 0o600 });
+    renameSync(tmp, path);
+  } catch (e) {
+    try { unlinkSync(tmp); } catch { /* nothing to clean up */ }
+    throw e;
+  }
+  // `mode` only applies when a file is created, so a config written by an older
   // version keeps its permissions unless we tighten them here.
   chmodSync(path, 0o600);
   return path;
@@ -138,22 +152,75 @@ export function readStoredConfig(scope = "user") {
   return { ...(file.accounts[currentName(file)] || {}) };
 }
 
+// An update is read-modify-write, and several agents may be doing it at once —
+// two of them reading the same file and writing back in turn loses whichever
+// change landed first. The lock makes each update see the previous one.
+//
+// Held for a single file rewrite (well under a millisecond), so waiting is
+// cheap; a hard timeout means a crashed process cannot wedge every later run.
+function withConfigLock(scope, mutate) {
+  const path = configPath(scope);
+  mkdirSync(dirname(path), { recursive: true });
+
+  const lockPath = `${path}.lock`;
+  const deadline = Date.now() + 5000;
+  let held = false;
+
+  while (Date.now() < deadline) {
+    try {
+      writeFileSync(lockPath, String(process.pid), { flag: "wx" });
+      held = true;
+      break;
+    } catch (e) {
+      if (e?.code !== "EEXIST") throw e;
+      // A lock older than the longest plausible write is a crash leftover.
+      try {
+        if (Date.now() - statSync(lockPath).mtimeMs > 10_000) unlinkSync(lockPath);
+      } catch { /* someone else cleared it first */ }
+      sleepBriefly();
+    }
+  }
+
+  try {
+    // Proceeding without the lock beats refusing to work: the write is still
+    // atomic, so the worst case is a lost update rather than a broken file.
+    return mutate();
+  } finally {
+    if (held) {
+      try { unlinkSync(lockPath); } catch { /* already gone */ }
+    }
+  }
+}
+
+// A few milliseconds without pulling in a timer: this runs inside a synchronous
+// read-modify-write and must not yield to other work.
+function sleepBriefly() {
+  const until = Date.now() + 3;
+  while (Date.now() < until) { /* spin */ }
+}
+
 // Save the account in play. Fields not given are left as they are, so a command
 // updating a cursor cannot wipe the mailbox's other settings.
 export function saveConfig(cfg, scope = "user") {
-  if (scope === "admin") return writeFile({ ...readFile("admin"), ...cfg }, "admin");
+  return withConfigLock(scope, () => {
+    if (scope === "admin") return writeFile({ ...readFile("admin"), ...cfg }, "admin");
 
-  const file = accountsFile("user");
-  const { email, ...rest } = cfg;
-  const name = email || currentName(file);
-  if (!name) fail("no mailbox selected. Run `cfmail setup --email <address> ...` first.");
+    const file = accountsFile("user");
+    const { email, ...rest } = cfg;
+    const name = email || currentName(file);
+    if (!name) fail("no mailbox selected. Run `cfmail setup --email <address> ...` first.");
 
-  file.accounts[name] = { ...(file.accounts[name] || {}), ...rest };
-  if (!file.current) file.current = name;
-  return writeFile(file, "user");
+    file.accounts[name] = { ...(file.accounts[name] || {}), ...rest };
+    if (!file.current) file.current = name;
+    return writeFile(file, "user");
+  });
 }
 
 export function setCurrentAccount(email, scope = "user") {
+  return withConfigLock(scope, () => setCurrentAccountLocked(email, scope));
+}
+
+function setCurrentAccountLocked(email, scope) {
   const file = accountsFile(scope);
   if (!file.accounts[email]) {
     const known = Object.keys(file.accounts);
@@ -168,6 +235,10 @@ export function setCurrentAccount(email, scope = "user") {
 }
 
 export function removeAccount(email, scope = "user") {
+  return withConfigLock(scope, () => removeAccountLocked(email, scope));
+}
+
+function removeAccountLocked(email, scope) {
   const file = accountsFile(scope);
   if (!file.accounts[email]) fail(`no mailbox configured for ${email}`);
   delete file.accounts[email];
