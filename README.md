@@ -1,269 +1,271 @@
-# cfmail · 给 Agent 一个自己能收发邮件的邮箱
+# cfmail · Give your Agent a mailbox it can use on its own
 
-## 这是什么
+English | [简体中文](./README.zh-CN.md)
 
-**目标很直接：让 Agent 自己收邮件、自己发邮件，中间不用人转发、不用人审批、不用人点发送。** 搭在 [Cloudflare](https://cloudflare.com) 上，**没有网页界面**——这不是给你自己翻邮件用的收件箱，是给 AI/程序当成自己的邮箱在用的。
+## What is this
 
-> 发到 `任意名字@你的域名` 的邮件会被自动收下来存好；Agent 自己去搜、自己读全文、自己回信、自己转发附件——你不用把邮件转发给它，它也不用等你点确认才能发出去。
+**The goal is simple: let an Agent receive and send email on its own, with no human forwarding, approving, or clicking "send" in the middle.** It runs on [Cloudflare](https://cloudflare.com) and **has no web UI** — this isn't an inbox for you to browse; it's a mailbox for an AI/program to use as its own.
+
+> Mail sent to `anything@your-domain` is caught and stored automatically. The Agent searches it, reads the full text, replies, and forwards attachments on its own — you don't have to forward mail to it, and it doesn't have to wait for you to click send.
 
 ```
-别人给你发邮件 ──▶ Cloudflare 收下 ──▶ 自动解析、存进数据库和文件存储
-                                                  │
-Agent ──问问题 / 发邮件──▶ cfmail 命令行（或直接 MCP）──▶ 这个服务的接口 ──┘
+Someone emails you ──▶ Cloudflare receives it ──▶ parsed automatically, stored in a database and object storage
+                                                              │
+Agent ──asks a question / sends mail──▶ cfmail CLI (or MCP directly) ──▶ this service's API ──┘
 ```
 
-**起步几乎零成本**，Cloudflare 和 Resend 的免费额度就够用，两边都不用绑信用卡：
+**Startup cost is close to zero** — Cloudflare's and Resend's free tiers are enough, and neither requires a credit card:
 
-| 环节 | 免费额度 |
+| Piece | Free tier |
 | --- | --- |
-| 收信（Cloudflare Email Routing） | 不限量，本来就免费 |
-| 跑服务（Cloudflare Workers） | 每天 10 万次请求 |
-| 存邮件正文/索引（Cloudflare D1） | 5 GB，每天 500 万次读 |
-| 存附件原文（Cloudflare R2） | 10 GB/月 |
-| 发信（Resend，默认后端） | 每月 3000 封、每天 100 封 |
+| Receiving mail (Cloudflare Email Routing) | Unlimited, free by design |
+| Running the service (Cloudflare Workers) | 100,000 requests/day |
+| Storing mail bodies/index (Cloudflare D1) | 5 GB, 5M reads/day |
+| Storing raw attachments (Cloudflare R2) | 10 GB/month |
+| Sending mail (Resend, default backend) | 3,000/month, 100/day |
 
-一个小项目、一个人或几个 Agent 用，这些额度基本用不完；真的跑量大了再考虑升级也不迟。
+For a small project used by one person or a handful of Agents, these limits are hard to hit; upgrade later if volume actually grows.
 
-它适合这些场景：
+It fits these situations:
 
-- 给 Agent 一个真正属于它自己的邮箱，让它独立完成「收信→读懂→回复/转发」的全流程，中间没有人工环节。
-- 用一个自己的域名收**验证码、通知、账单、发票**等邮件，让 AI 统一帮你查找和整理。
-- 想把邮件连正文带附件**定期同步到本机磁盘**存一份，新邮件来了直接推送到聊天里，点开就是本地文件。
+- Give an Agent a mailbox that is genuinely its own, so it can independently complete the whole "receive → understand → reply/forward" loop with no manual step in between.
+- Receive **verification codes, notifications, bills, invoices** on your own domain and let AI find and organize them for you.
+- Sync mail — body and attachments — to local disk on a schedule, and get pushed a chat message with a clickable local file the moment new mail arrives.
 
-技术细节（数据库表、检索原理、组件划分、双发信后端设计）见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
+Technical details (database schema, search design, component breakdown, the dual send-backend design) are in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
-这份文档分两块：**配置**——把服务部署到你自己的 Cloudflare 账号；**使用**——部署好之后，怎么让 Agent 用它收发邮件。
+This document has two parts: **Setup** — deploying the service to your own Cloudflare account; and **Usage** — once it's deployed, how to let an Agent use it to send and receive mail.
 
 ---
 
-## 配置：部署到 Cloudflare（约 10 分钟）
+## Setup: deploy to Cloudflare (~10 minutes)
 
-> 全部在你**自己的 Cloudflare 账号**里完成，邮件只存在你自己的账号下，别人碰不到。
+> Everything happens in **your own Cloudflare account** — mail only ever lives under your account, no one else can reach it.
 
-### 你需要准备
+### What you need
 
-1. 一个 **Cloudflare 账号**（免费版即可）。
-2. 一个**已经添加到这个账号里的域名**（用来收邮件，也用来访问服务）。
-3. 本机装好 **Node.js 18 以上**。
+1. A **Cloudflare account** (the free plan is enough).
+2. A **domain already added to that account** (used both to receive mail and to reach the service).
+3. **Node.js 18 or newer** installed locally.
 
-### 第 0 步：拿到代码、登录、建本地配置
+### Step 0: get the code, log in, create your local config
 
 ```bash
 git clone <this-repo> && cd cfmail
 npm install
-npx wrangler login                       # 浏览器里登录你的 Cloudflare 账号
-cp wrangler.jsonc wrangler.local.jsonc   # 你的私有配置，不会被上传到代码仓库
+npx wrangler login                       # log into your Cloudflare account in the browser
+cp wrangler.jsonc wrangler.local.jsonc   # your private config, never pushed to the repo
 ```
 
-> 你的域名、数据库编号这些「跟你账号绑定」的信息，都填在 `wrangler.local.jsonc` 里。它已被忽略，不会进代码仓库；后面的命令会自动用它。
+> Anything tied to your account — your domain, database ID — goes in `wrangler.local.jsonc`. It's gitignored already; every command below picks it up automatically.
 
-### 第 1 步：创建数据库（存邮件的元信息和正文）
+### Step 1: create the database (stores mail metadata and bodies)
 
 ```bash
 npx wrangler d1 create email_db
 ```
 
-命令会输出一个 `database_id`，把它复制到 `wrangler.local.jsonc` 里 `d1_databases[0].database_id` 那一行。
+The command prints a `database_id` — copy it into `wrangler.local.jsonc` at `d1_databases[0].database_id`.
 
-### 第 2 步：创建文件存储（存邮件原文和附件）
+### Step 2: create object storage (stores raw mail and attachments)
 
 ```bash
 npx wrangler r2 bucket create email-store
 ```
 
-### 第 3 步：填好你的域名
+### Step 3: set your domain
 
-打开 `wrangler.local.jsonc`，把 `routes[0].pattern` 改成你想用的子域名，例如 `mail.yourdomain.com`（必须是你 Cloudflare 上的域名）。这个地址将来就是 Agent 访问服务的入口。
+Open `wrangler.local.jsonc` and change `routes[0].pattern` to whatever subdomain you want, e.g. `mail.yourdomain.com` (it must be a domain in your Cloudflare account). This address is what the Agent will connect to.
 
-### 第 4 步：建表 + 设访问密码 + 部署
+### Step 4: create the tables, set an access password, deploy
 
 ```bash
-npm run db:remote                        # 在数据库里建好表
-npx wrangler secret put MCP_TOKEN        # 设一个访问密码（见下方提示）
-npm run deploy                           # 部署上线
+npm run db:remote                        # create the tables
+npx wrangler secret put MCP_TOKEN        # set an access password (see below)
+npm run deploy                           # deploy
 ```
 
-> **访问密码**：执行上面那条命令后，粘贴一段足够长的随机字符串作为密码，可以先用 `openssl rand -hex 32` 生成一个。这个密码 Agent 接入时要用，**不要泄露**；要换随时重新跑这条命令，换完旧密码立即失效。
+> **Access password**: after running that command, paste in a sufficiently long random string as the password — `openssl rand -hex 32` works. The Agent needs this password to connect; **never leak it**. To rotate it, just rerun the command — the old password stops working immediately.
 
-### 第 5 步：把「收到的邮件」转给这个服务
+### Step 5: route incoming mail to this service
 
-让发到你域名的所有邮件都进入这个服务（一次性配置）：
+Send every email addressed to your domain into this service (a one-time setup):
 
 ```bash
-# 把 <ZONE_ID> 换成你域名的 Zone ID；<API_TOKEN> 换成一个有 "Email Routing 编辑" 权限的 Cloudflare API Token
+# replace <ZONE_ID> with your domain's Zone ID, and <API_TOKEN> with a Cloudflare API token that has "Email Routing edit" permission
 curl -X PUT "https://api.cloudflare.com/client/v4/zones/<ZONE_ID>/email/routing/rules/catch_all" \
   -H "Authorization: Bearer <API_TOKEN>" -H "Content-Type: application/json" \
   --data '{"enabled":true,"name":"catch-all to worker","matchers":[{"type":"all"}],"actions":[{"type":"worker","value":["cloudflare-email"]}]}'
 ```
 
-不想敲命令也可以在网页里点：**Cloudflare 控制台 → 你的域名 → Email Routing → Catch-all → 动作选 "Send to a Worker" → 选 `cloudflare-email`**。
+Prefer clicking through the dashboard instead: **Cloudflare dashboard → your domain → Email Routing → Catch-all → action "Send to a Worker" → pick `cloudflare-email`**.
 
-> 如果这个域名以前没开过 Email Routing，先在控制台点一下开启（它会自动帮你加好收信需要的 DNS 记录）。
+> If this domain has never had Email Routing turned on, enable it in the dashboard first (it adds the DNS records mail delivery needs automatically).
 
-**完成！** 现在发到 `任意@你的域名` 的邮件都会被收下来，服务地址是 `https://你的子域名`。验证一下：给 `test@你的域名` 发一封测试邮件，几秒后用 `npx wrangler tail cloudflare-email` 应该能看到它被处理；接下来「使用」那节里 Agent 就能查到它。
+**Done!** Mail to `anything@your-domain` is now caught, and the service is live at `https://your-subdomain`. To check: send a test email to `test@your-domain`, then within a few seconds `npx wrangler tail cloudflare-email` should show it being processed; the Agent will be able to find it once you've set up "Usage" below.
 
-### 可选：开启发信
+### Optional: enable sending
 
-不配这一步，服务只能收信、不能发信。有两个后端可选，**默认用 Resend**：
+Skip this step and the service can only receive mail, not send it. Two backends are supported, and **Resend is the default**:
 
-**方式一，Resend（推荐）：**
+**Option one, Resend (recommended):**
 
-1. 在 [Resend](https://resend.com) 注册，添加你的域名——直接用根域 `yourdomain.com` 就行，不用退到子域。
-2. 在 Cloudflare DNS 里加它给的三条记录：
+1. Sign up at [Resend](https://resend.com) and add your domain — use the root domain (`yourdomain.com`) directly, no need for a subdomain.
+2. Add the three DNS records it gives you, in Cloudflare DNS:
 
-   | 类型 | 名称 | 值 | 代理 |
+   | Type | Name | Value | Proxy |
    | --- | --- | --- | --- |
-   | MX | `send` | Resend 给的地址，优先级 10 | — |
+   | MX | `send` | the address Resend gives you, priority 10 | — |
    | TXT | `send` | `v=spf1 include:amazonses.com ~all` | — |
-   | TXT | `resend._domainkey` | Resend 给的 DKIM 公钥 | **DNS Only（关橙云）** |
+   | TXT | `resend._domainkey` | the DKIM public key Resend gives you | **DNS only (grey-cloud it)** |
 
-   > 这条 MX 挂在 `send.yourdomain.com` 上，跟根域收信的 Email Routing 不冲突；DKIM 那条一定要关橙云代理，开着会验不过。
+   > This MX record lives on `send.yourdomain.com`, so it doesn't conflict with Email Routing on the root domain. The DKIM record must have the proxy turned off — leaving it proxied fails verification.
 
-3. 把 key 设成 secret：`npx wrangler secret put RESEND_API_KEY -c wrangler.local.jsonc`
+3. Set the key as a secret: `npx wrangler secret put RESEND_API_KEY -c wrangler.local.jsonc`
 
-免费额度每月 3000 封、每天 100 封，够起步用；超出后付费或换回下面这个方式。
+The free tier is 3,000 emails/month, 100/day — enough to get started; pay as you grow, or switch to the option below.
 
-**方式二，Cloudflare 自带发信：** 确认 `wrangler.local.jsonc` 里有 `"send_email": [{ "name": "EMAIL" }]`（模板已带），然后去 Cloudflare 后台 Email → Email Sending 给域名做一次 onboarding。只发给自己在 Email Routing → Destination addresses 里验证过的地址的话，onboarding 这步能跳过，直接免费能发。
+**Option two, Cloudflare's built-in sending:** confirm `wrangler.local.jsonc` has `"send_email": [{ "name": "EMAIL" }]` (already in the template), then do a one-time Email Sending onboarding for your domain under Cloudflare's Email dashboard. If you're only sending to addresses you've already verified under Email Routing → Destination addresses, you can skip onboarding entirely and send for free right away.
 
-两个都没配，发信会返回一句「没有可用的发信后端」并告诉你怎么配，收信和查询不受影响。发信细节（附件多大、发件人限制、失败怎么排查）见 [ARCHITECTURE.md](./ARCHITECTURE.md) 和 [cli/README.md](./cli/README.md)——Agent 发信出错时会直接读懂错误码并告诉你原因，不需要你先记住这些限制。
+With neither configured, sending returns a "no send backend available" message that explains what to set up; receiving and querying are unaffected. For details on sending — attachment size limits, sender restrictions, how to debug a failure — see [ARCHITECTURE.md](./ARCHITECTURE.md) and [cli/README.md](./cli/README.md); when a send fails, the Agent reads the error code and tells you what went wrong, so you don't need to memorize these limits up front.
 
-### 部署后的日常维护
+### Ongoing maintenance after deploying
 
 ```bash
-npx wrangler tail cloudflare-email        # 实时看收信和报错日志
-npx wrangler secret put MCP_TOKEN         # 换访问密码
+npx wrangler tail cloudflare-email        # tail incoming mail and errors live
+npx wrangler secret put MCP_TOKEN         # rotate the access password
 npx wrangler d1 execute email_db --remote --command "SELECT id,subject,from_addr,date FROM emails ORDER BY date DESC LIMIT 10"
 ```
 
-> `wrangler.local.jsonc` 只存在你本机，记得别误删；删了就照「第 0 步」重新 `cp` 一份再把你的数据库编号和域名填回去。
+> `wrangler.local.jsonc` only exists on your machine — don't delete it by accident. If you do, redo "Step 0" and fill your database ID and domain back in.
 
 ---
 
-## 使用：让 Agent 收发邮件
+## Usage: let an Agent send and receive mail
 
-部署好之后，有三种方式把它接给 Agent 用，**优先用「技能」**——这是最省事、最贴近「Agent 自己收发邮件」这个目标的方式。
+Once deployed, there are three ways to wire it up to an Agent. **Skills are the recommended path** — it's the least fuss, and closest to the goal of "the Agent handles mail on its own."
 
-### 优先：用「技能」（推荐）
+### Preferred: use the skills (recommended)
 
-`skills/` 目录下有两份技能，教 Agent 用 `cfmail` 这个命令行工具干活：
+The `skills/` directory has two skills that teach an Agent to work through the `cfmail` command-line tool:
 
 ```
 skills/
-  email-inbox/   普通用户：用绑定的 Key 收发邮件
-  email-admin/   管理员：开通邮箱、签发/吊销 Key、配置新邮件提醒
+  email-inbox/   for a regular user: read and send mail with a bound Key
+  email-admin/   for an admin: open mailboxes, issue/revoke Keys, configure new-mail alerts
 ```
 
-两者配套：**管理员**用 `email-admin` 为某个邮箱地址签发一把 Key，**用户**把这把 Key 配进 `email-inbox` 就能收发信。
+The two work together: the **admin** uses `email-admin` to issue a Key for a mailbox address, and the **user** puts that Key into `email-inbox` to send and receive mail.
 
-**第 0 步，装上 `cfmail`**（需要 Node 20+）：
+**Step 0, install `cfmail`** (needs Node 20+):
 
 ```bash
 npm install -g cfmail
 ```
 
-**第 1 步，把技能拷进 Agent 的技能目录。** 以 Claude Code 为例，技能目录是 `.claude/skills/`：
+**Step 1, copy the skills into the Agent's skills directory.** For Claude Code, that's `.claude/skills/`:
 
 ```bash
-cp -r skills/email-inbox  你的项目/.claude/skills/
-cp -r skills/email-admin  你的项目/.claude/skills/
+cp -r skills/email-inbox  your-project/.claude/skills/
+cp -r skills/email-admin  your-project/.claude/skills/
 ```
 
-> 也可以软链接整个 `skills/`：`ln -s /路径/cfmail/skills 你的项目/.claude/skills`。
+> You can also symlink the whole `skills/` directory: `ln -s /path/to/cfmail/skills your-project/.claude/skills`.
 
-**第 2 步（管理员），开通一个邮箱：**
+**Step 2 (admin), open a mailbox:**
 
 ```bash
-cfmail admin setup --base https://你的子域名 --key <管理员MCP_TOKEN>   # 一次性
-cfmail admin create-key alice@你的域名                                # 打印一把明文 Key，只显示这一次
+cfmail admin setup --base https://your-subdomain --key <admin-MCP_TOKEN>   # one-time
+cfmail admin create-key alice@your-domain                                 # prints a plaintext Key, shown only once
 ```
 
-其它管理命令：`list-keys`（看已开通的）、`delete-key <邮箱>`（吊销）、`webhook --set whk_xxx`（新邮件推送到聊天，可选，见 [cli/README.md](./cli/README.md)）。
+Other admin commands: `list-keys` (see what's been issued), `delete-key <address>` (revoke), `webhook --set whk_xxx` (push new mail to chat, optional — see [cli/README.md](./cli/README.md)).
 
-**第 3 步（用户），配上这把 Key：**
+**Step 3 (user), configure that Key:**
 
 ```bash
-cfmail setup --base https://你的子域名 --email alice@你的域名 --key <上一步的Key>
+cfmail setup --base https://your-subdomain --email alice@your-domain --key <the-key-from-step-2>
 ```
 
-**配完就交给 Agent 了**，直接说话：
+**Once it's configured, just talk to the Agent:**
 
-- 「看看有没有新邮件」「找一下验证码邮件」
-- 「回复一下那封发票邮件，告诉对方已收到」
-- 「把这个附件转发给会计」
+- "Check if there's any new mail" / "Find that verification code email"
+- "Reply to that invoice email and confirm we got it"
+- "Forward that attachment to accounting"
 
-它会自己选合适的命令，按需读全文、取附件、回信。发信用的是 Key 绑定的那个地址，改不了——服务端强制的。
+It picks the right command on its own, reading full text, fetching attachments, and replying as needed. Mail is always sent from the address bound to the Key — that's enforced server-side and can't be changed.
 
-**想把邮件顺手同步到本机磁盘、来新邮件就推一条带文件链接的消息**，是这套技能之外的可选项：
+**If you also want mail synced to local disk, with a chat push carrying a clickable file link when new mail arrives** — that's a separate, optional add-on outside the skills flow:
 
 ```bash
-cfmail sync --dir ~/cfmail --notify whk_你的key
+cfmail sync --dir ~/cfmail --notify whk_your-key
 ```
 
-放进 launchd/cron 定时跑；目录结构、去重规则、跟 `admin webhook` 的区别，都在 [cli/README.md](./cli/README.md) 里。
+Put it on a schedule with launchd/cron. Directory layout, dedup rules, and how this differs from `admin webhook` are all in [cli/README.md](./cli/README.md).
 
-> 安全提醒：`email-admin` 用的是最高权限的管理员密钥，**只配在管理员自己机器上，绝不要交给普通用户**。
+> Security note: `email-admin` holds the highest-privilege admin key — **keep it on the admin's own machine only, never hand it to a regular user**.
 
-### 也可以：直接用 `cfmail` 命令行
+### Alternative: use the `cfmail` command line directly
 
-不用技能，Agent（或你自己）直接敲命令也行：
+Without the skills, an Agent (or you) can just run commands:
 
 ```bash
-cfmail unread                                              # 收最新未读
-cfmail search "发票"                                        # 全文搜索，支持中文
-cfmail read <邮件id>                                        # 读全文、看附件清单
-cfmail send --to a@x.com --subject "标题" --text "正文"      # 发一封
-cfmail reply <邮件id> --text "回复内容"                      # 在原会话里回信
-cfmail config                                              # 看这份配置连的是哪个邮箱
+cfmail unread                                              # fetch the latest unread mail
+cfmail search "invoice"                                    # full-text search, Chinese included
+cfmail read <email-id>                                     # read the full text and attachment list
+cfmail send --to a@x.com --subject "subject" --text "body"  # send one
+cfmail reply <email-id> --text "reply text"                 # reply within the original thread
+cfmail config                                              # see which mailbox this config points at
 ```
 
-一台机器管多个邮箱、多个 Agent 并发使用、本地归档目录结构、全部参数——完整说明见 [cli/README.md](./cli/README.md)（每个命令加 `--help` 也有）。
+Managing multiple mailboxes on one machine, running several Agents concurrently, the local archive layout, and every flag — the full reference is [cli/README.md](./cli/README.md) (every command also answers `--help`).
 
-### 也可以：不装 CLI，直接把服务接成 MCP
+### Alternative: skip the CLI, connect the service as MCP directly
 
-不想装 CLI，把服务地址直接配进支持 MCP 的 AI 客户端也可以：
+If you'd rather not install the CLI, you can point an MCP-capable AI client straight at the service:
 
 ```bash
-claude mcp add --transport http email https://你的子域名/mcp \
-  --header "Authorization: Bearer 你设置的密码"
+claude mcp add --transport http email https://your-subdomain/mcp \
+  --header "Authorization: Bearer your-password"
 ```
 
-其他 MCP 客户端用配置文件：
+Other MCP clients use a config file:
 
 ```json
 {
   "mcpServers": {
     "email": {
-      "url": "https://你的子域名/mcp",
-      "headers": { "Authorization": "Bearer 你设置的密码" }
+      "url": "https://your-subdomain/mcp",
+      "headers": { "Authorization": "Bearer your-password" }
     }
   }
 }
 ```
 
-接好之后直接用大白话问 AI：「搜一下含'发票'的邮件」「打开第一封，把附件下载下来」——背后会用到 `search_emails` / `list_emails` / `get_email` / `get_attachment` / `send_email` 等工具，AI 自己选，你不用记这些名字。这种接法没有本地归档、多邮箱管理这些 `cfmail` 才有的能力。
+Once connected, just ask in plain language: "search for mail containing 'invoice'", "open the first one and download the attachment" — under the hood this uses tools like `search_emails` / `list_emails` / `get_email` / `get_attachment` / `send_email`, chosen automatically by the AI; you don't need to remember their names. This path doesn't get you local archiving or multi-mailbox management — those are `cfmail`-only.
 
 ---
 
-## 常见问题
+## FAQ
 
-- **服务地址打不开 / 连接被重置**：别用默认的 `*.workers.dev`（部分地区会被阻断），用你自己的域名（本项目默认就是这么做的）。
-- **自己测试发邮件被退回（550 SPF）**：这是发件方校验问题；用正常邮箱（Gmail/QQ/Outlook 等）发信不受影响。
-- **刚发的邮件查不到**：收信到入库有几秒延迟，稍等再查，或用 `npx wrangler tail cloudflare-email` 看是否收到。
-- **提示 401 没权限**：检查 `Authorization: Bearer 密码` 是否填对。
+- **The service URL won't load / connection reset**: don't use the default `*.workers.dev` (blocked in some regions) — use your own domain (which is what this project does by default).
+- **A test email you sent bounced (550 SPF)**: that's a sender-side validation issue; sending from a normal mailbox (Gmail, QQ, Outlook, etc.) isn't affected.
+- **A mail you just sent doesn't show up yet**: there's a few seconds of delay between receiving and indexing — wait and check again, or use `npx wrangler tail cloudflare-email` to see if it arrived.
+- **Getting a 401**: check that `Authorization: Bearer your-password` is set correctly.
 
-## 给贡献者：本地开发
+## For contributors: local development
 
 ```bash
-cp .dev.vars.example .dev.vars                 # 填一个本地访问密码
-npm run db:local                               # 建本地数据库表
-npm run dev                                     # 本地启动，:8787
-MCP_TOKEN=本地密码 node scripts/mcp-smoke.mjs    # 连本地接口自检
-npm test                                        # 单元测试
-npm run typecheck                               # 类型检查
+cp .dev.vars.example .dev.vars                 # fill in a local access password
+npm run db:local                               # create local database tables
+npm run dev                                     # start locally on :8787
+MCP_TOKEN=your-local-password node scripts/mcp-smoke.mjs    # smoke-test the local API
+npm test                                        # unit tests
+npm run typecheck                               # type checking
 ```
 
-线上自检：`BASE="https://你的子域名" TOKEN="你的密码" node scripts/remote-check.mjs`
+Smoke-test against production: `BASE="https://your-subdomain" TOKEN="your-password" node scripts/remote-check.mjs`
 
-## 许可
+## License
 
-[MIT](./LICENSE) — 可自由使用、修改、分发。
+[MIT](./LICENSE) — free to use, modify, and distribute.
