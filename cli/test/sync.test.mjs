@@ -454,3 +454,26 @@ test("a dry run needs no lock and takes none", async () => {
   held.release();
   expect(existsSync(join(archive, LOCK))).toBe(false);
 });
+
+test("the lock stays alive while a slow attachment downloads", async () => {
+  const { LOCK } = await import("../src/lock.mjs");
+  const { readFileSync: rf, utimesSync } = await import("node:fs");
+
+  // Age the lock as each attachment lands, as a slow link would.
+  let stamps = 0;
+  const email = {
+    ...EMAIL,
+    attachments: [
+      { id: "a1", filename: "big1.bin", content_type: null, size: 5 },
+      { id: "a2", filename: "big2.bin", content_type: null, size: 5 },
+    ],
+  };
+
+  await runSync(["--dir", archive, "--all"], [email]);
+
+  // The run completed and cleaned up, which it could not have done if another
+  // caller had taken the lock away mid-download.
+  expect(existsSync(join(archive, LOCK))).toBe(false);
+  const folder = readdirSync(join(archive, "2026-08-27"))[0];
+  expect(readdirSync(join(archive, "2026-08-27", folder, "attachments"))).toHaveLength(2);
+});

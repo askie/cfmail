@@ -306,6 +306,9 @@ async function syncWithLock(opts, cfg, stored, dir, notifyKey, pageSize, lock) {
       writeFileSync(filePath, Buffer.from(got.content_base64, "base64"));
       savedFiles.push({ name, path: filePath, size: a.size ?? 0 });
       n++;
+      // A single large attachment on a slow link can take minutes on its own;
+      // without this the lock would go stale mid-download.
+      lock?.touch();
     }
 
     // Without every attachment this is not a complete archive: leave meta.json
