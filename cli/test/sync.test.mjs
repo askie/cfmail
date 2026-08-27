@@ -2,6 +2,7 @@ import { test, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setJsonMode } from "../src/output.mjs";
 
 let dir, archive, printed;
 
@@ -53,6 +54,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setJsonMode(false);
   vi.restoreAllMocks();
   vi.resetModules();
   delete process.env.EMAIL_INBOX_CONFIG;
@@ -78,6 +80,11 @@ async function runSync(argv, emails, opts = {}) {
   });
 
   const { run } = await import("../src/commands/sync.mjs");
+
+  // resetModules gives the command a fresh output module, so the mode has to be
+  // set on that instance rather than the one this file imported.
+  if (opts.json) (await import("../src/output.mjs")).setJsonMode(true);
+
   await run(argv);
   stub.sent = sent;
   return stub;
@@ -403,4 +410,70 @@ test("body.html is still only written with --html", async () => {
   // The HTML is fetched regardless (body.md needs it), but not kept unless asked.
   expect(existsSync(join(p, "body.html"))).toBe(false);
   expect(existsSync(join(p, "body.md"))).toBe(true);
+});
+
+// --- Only one run at a time per archive. ---------------------------------------
+
+test("a second sync steps aside instead of racing the first", async () => {
+  const { acquireLock } = await import("../src/lock.mjs");
+  const held = acquireLock(archive);   // stand in for a run already in progress
+
+  const stub = await runSync(["--dir", archive, "--all"]);
+
+  // Nothing fetched, nothing written, and the message says why.
+  expect(stub.calls.list).toHaveLength(0);
+  expect(printed.join("")).toMatch(/另一个 sync 正在跑/);
+  held.release();
+});
+
+test("stepping aside is not an error — a schedule should not raise alarms", async () => {
+  const { acquireLock } = await import("../src/lock.mjs");
+  const held = acquireLock(archive);
+
+  await runSync(["--dir", archive, "--all"], undefined, { json: true });
+
+  const r = JSON.parse(printed.join(""));
+  expect(r.ok).toBe(true);           // exit code stays 0
+  expect(r.skipped).toBe("locked");
+  held.release();
+});
+
+test("the lock is released when the run finishes", async () => {
+  const { LOCK } = await import("../src/lock.mjs");
+  await runSync(["--dir", archive, "--all"]);
+  expect(existsSync(join(archive, LOCK))).toBe(false);
+});
+
+test("a dry run needs no lock and takes none", async () => {
+  const { acquireLock, LOCK } = await import("../src/lock.mjs");
+  const held = acquireLock(archive);
+
+  await runSync(["--dir", archive, "--all", "--dry-run"]);
+  expect(printed.join("")).toMatch(/将归档/);   // it ran
+
+  held.release();
+  expect(existsSync(join(archive, LOCK))).toBe(false);
+});
+
+test("the lock stays alive while a slow attachment downloads", async () => {
+  const { LOCK } = await import("../src/lock.mjs");
+  const { readFileSync: rf, utimesSync } = await import("node:fs");
+
+  // Age the lock as each attachment lands, as a slow link would.
+  let stamps = 0;
+  const email = {
+    ...EMAIL,
+    attachments: [
+      { id: "a1", filename: "big1.bin", content_type: null, size: 5 },
+      { id: "a2", filename: "big2.bin", content_type: null, size: 5 },
+    ],
+  };
+
+  await runSync(["--dir", archive, "--all"], [email]);
+
+  // The run completed and cleaned up, which it could not have done if another
+  // caller had taken the lock away mid-download.
+  expect(existsSync(join(archive, LOCK))).toBe(false);
+  const folder = readdirSync(join(archive, "2026-08-27"))[0];
+  expect(readdirSync(join(archive, "2026-08-27", folder, "attachments"))).toHaveLength(2);
 });
