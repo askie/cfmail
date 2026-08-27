@@ -157,3 +157,20 @@ test("a leftover --email says what replaced it instead of just rejecting it", ()
 test("setup still takes --email: there it names the mailbox, not a selection", () => {
   expect(help("setup")).toContain("--email");
 });
+
+test("no command's help still talks about a \u300c\u5f53\u524d\u90ae\u7bb1\u300d", () => {
+  // The concept is gone: one config file is one mailbox. Help that still names
+  // it sends the reader looking for a setting that no longer exists.
+  for (const cmd of [...Object.keys(COMMANDS), "stats", "config", "admin"]) {
+    expect(help(cmd), cmd).not.toContain("\u5f53\u524d\u90ae\u7bb1");
+  }
+});
+
+test("the overview mentions it only to say there isn't one", () => {
+  // The overview is the one place worth naming it, because a reader arriving
+  // from the old CLI is looking for it.
+  const text = execFileSync("node", [BIN, "--help"], { encoding: "utf8" });
+  for (const line of text.split("\n").filter((l) => l.includes("\u5f53\u524d\u90ae\u7bb1"))) {
+    expect(line, line.trim()).toMatch(/\u6ca1\u6709\u300c\u5f53\u524d\u90ae\u7bb1\u300d/);
+  }
+});
