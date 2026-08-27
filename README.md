@@ -364,8 +364,14 @@ cfmail admin webhook --set whk_你的key
 收件人: you@你的域名
 主题: 8 月账单
 
+附件 2 个:
+  · 账单.pdf  240 KB
+  · 明细.xlsx  18 KB
+
 账单已生成，请查收附件……
 ```
+
+附件只列文件名和大小，不塞文件内容——要拿文件用 `cfmail read <邮件id>` 找到附件 id，再 `cfmail attachment <附件id> --out <路径>` 下载。
 
 **POST 给你自己的程序**：
 

@@ -1,5 +1,6 @@
 import { test, expect, vi, afterEach } from "vitest";
 import { pushNewEmail, isGrixKey, webhookTarget } from "../src/push";
+import type { StoredAttachment } from "../src/types";
 
 const KEY = "whk_71e14a27fa41d71e97f229bc53728dce";
 
@@ -136,4 +137,63 @@ test("truncation never splits a surrogate pair", async () => {
   const content = JSON.parse((f.mock.calls[0][1] as any).body).content;
   expect(content).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
   expect(content).toContain("…");
+});
+
+// --- Attachments are named, not just flagged. ---------------------------------
+
+const FILES: StoredAttachment[] = [
+  { id: "a1", email_id: "e1", filename: "invoice.pdf", content_type: "application/pdf", size: 245_760, r2_key: "k1" },
+  { id: "a2", email_id: "e1", filename: "photo.jpg", content_type: "image/jpeg", size: 2_202_009, r2_key: "k2" },
+];
+
+test("the Grix message lists each attachment with a readable size", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), ROW, FILES);
+
+  const content = JSON.parse((f.mock.calls[0][1] as any).body).content;
+  expect(content).toContain("附件 2 个:");
+  expect(content).toContain("invoice.pdf  240 KB");
+  expect(content).toContain("photo.jpg  2.1 MB");
+  // Naming the files is the point: "（含附件）" alone tells the reader nothing.
+  expect(content).toContain("（含附件）");
+});
+
+test("a tiny attachment is reported in bytes rather than 0 KB", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), ROW, [{ ...FILES[0], filename: "note.txt", size: 12 }]);
+  expect(JSON.parse((f.mock.calls[0][1] as any).body).content).toContain("note.txt  12 B");
+});
+
+test("a long attachment list is capped so the message stays readable", async () => {
+  const many = Array.from({ length: 25 }, (_, i) => ({ ...FILES[0], id: `a${i}`, filename: `f${i}.pdf` }));
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), ROW, many);
+
+  const content = JSON.parse((f.mock.calls[0][1] as any).body).content;
+  expect(content).toContain("附件 25 个:");
+  expect(content).toContain("…还有 15 个");
+  expect(content).not.toContain("f10.pdf");
+});
+
+test("an unnamed attachment still gets a line", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), ROW, [{ ...FILES[0], filename: null }]);
+  expect(JSON.parse((f.mock.calls[0][1] as any).body).content).toContain("(未命名)");
+});
+
+test("no attachments means no attachment section at all", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), { ...ROW, has_attachments: 0 }, []);
+  expect(JSON.parse((f.mock.calls[0][1] as any).body).content).not.toContain("附件");
+});
+
+test("the plain-URL payload carries the attachment metadata too", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith("https://example.com/hook"), ROW, FILES);
+
+  const body = JSON.parse((f.mock.calls[0][1] as any).body);
+  expect(body.attachments).toEqual([
+    { id: "a1", filename: "invoice.pdf", content_type: "application/pdf", size: 245_760 },
+    { id: "a2", filename: "photo.jpg", content_type: "image/jpeg", size: 2_202_009 },
+  ]);
 });

@@ -106,10 +106,10 @@ MCP 协议本身支持服务端→客户端的订阅推送，但只在客户端�
 
 | 存的值 | 推到哪 | 发什么 |
 |---|---|---|
-| `whk_...` | Grix 固定端点 + 这个 key | `{content, msg_type:"text", client_msg_id}`，content 是排版好的中文消息 |
-| `http(s)://...` | 该地址 | 原始 JSON 事件（发件人、主题、摘要、附件标记） |
+| `whk_...` | Grix 固定端点 + 这个 key | `{content, msg_type:"text", client_msg_id}`，content 是排版好的中文消息，含附件清单（文件名 + 大小，最多列 10 个） |
+| `http(s)://...` | 该地址 | 原始 JSON 事件（发件人、主题、摘要、附件元信息数组） |
 
-`client_msg_id` 用邮件的 **Message-ID**（不是存储 id——每次入库都会生成新 UUID，重投时对不上），所以 Email Routing 重投同一封邮件时 Grix 侧能真正合并成一条。Grix 把 `content` 当聊天消息渲染，因此它必须读起来像一句话而不是 JSON 转储。
+`client_msg_id` 用邮件的 **Message-ID**（不是存储 id——每次入库都会生成新 UUID，重投时对不上），所以 Email Routing 重投同一封邮件时 Grix 侧能真正合并成一条。Grix 把 `content` 当聊天消息渲染，因此它必须读起来像一句话而不是 JSON 转储。附件只带元信息不带字节——聊天里塞几 MB base64 没有意义，收件人拿附件 id 去 `cfmail attachment` 下载即可。
 
 ## 关键选型与取舍
 

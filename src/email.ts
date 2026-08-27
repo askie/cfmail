@@ -13,5 +13,5 @@ export async function ingest(
   const parsed = await parseRaw(rawBuf);
   const row = await storeEmail(env, rawBuf, parsed);
   // Notify out-of-band so a slow/failing webhook never delays mail handling.
-  ctx.waitUntil(pushNewEmail(env, row));
+  ctx.waitUntil(pushNewEmail(env, row, row.attachments));
 }

@@ -43,7 +43,7 @@ export async function storeEmail(
   env: Env,
   rawBuf: ArrayBuffer,
   parsed: ParsedEmail
-): Promise<EmailRow> {
+): Promise<EmailRow & { attachments: StoredAttachment[] }> {
   await ensureSchema(env);
 
   const id = crypto.randomUUID();
@@ -121,7 +121,7 @@ export async function storeEmail(
   ];
   await env.DB.batch(stmts);
 
-  return row;
+  return { ...row, attachments };
 }
 
 export interface ListFilters {
