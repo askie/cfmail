@@ -46,6 +46,52 @@ cfmail stats
 
 已读状态是本机游标，服务端不记录，所以每台机器各自独立。
 
+## 归档到本地
+
+把邮件（正文 + 附件）按天存到本地目录，方便自己翻、备份、或者用别的工具处理：
+
+```bash
+cfmail sync --dir ~/mail      # 第一次指定目录，之后会记住
+cfmail sync                   # 之后只同步新邮件
+cfmail sync --html            # 连 HTML 正文一起存
+cfmail sync --dry-run         # 只看会存什么，不落盘
+```
+
+存出来长这样：
+
+```
+~/mail/2026-08-27/0930-发票-Q3/
+    meta.json          发件人、主题、时间、附件清单
+    body.txt           纯文本正文
+    body.html          仅 --html 时
+    attachments/
+        invoice.pdf    原始文件名
+```
+
+已经存过的会跳过，所以反复跑很便宜，适合放进定时任务。
+
+## 定时清理旧归档
+
+```bash
+cfmail prune --older-than 90d          # 预演：只报告会删什么
+cfmail prune --older-than 90d --yes    # 真正删除
+```
+
+年龄支持 `30d` / `12w` / `6m` / `1y`。**不加 `--yes` 就只是预演**，删除不可逆，先看清单再动手。
+
+两个安全设计：
+
+- 只删 `sync` 自己写的日期目录（`YYYY-MM-DD` 格式），你放在同一个目录下的其它文件不会被碰
+- 按邮件自身日期判断，不看文件修改时间——拷贝或恢复备份不会让归档"重新变新"
+
+**只删本地归档，服务器上的邮件一封都不动。**
+
+放进 cron 就能自动跑：
+
+```bash
+0 4 * * *  cfmail sync && cfmail prune --older-than 90d --yes
+```
+
 ## 发信
 
 ```bash
