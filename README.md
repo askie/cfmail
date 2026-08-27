@@ -1,4 +1,4 @@
-# cloudflare-email · 给 Agent 一个自己能收发邮件的邮箱
+# cfmail · 给 Agent 一个自己能收发邮件的邮箱
 
 ## 这是什么
 
@@ -212,7 +212,7 @@ cp -r skills/email-inbox  你的项目/.claude/skills/
 cp -r skills/email-admin  你的项目/.claude/skills/
 ```
 
-> 也可以软链接整个 `skills/`：`ln -s /路径/cloudflare-email/skills 你的项目/.claude/skills`。Agent 启动后会读取每个技能里的 `SKILL.md`，在合适的时候自动调用。
+> 也可以软链接整个 `skills/`：`ln -s /路径/cfmail/skills 你的项目/.claude/skills`。Agent 启动后会读取每个技能里的 `SKILL.md`，在合适的时候自动调用。
 
 ### 第 2 步（管理员）：开通一个邮箱
 
