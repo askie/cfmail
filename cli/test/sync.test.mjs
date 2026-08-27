@@ -346,3 +346,53 @@ test("--dry-run neither pushes nor remembers the key", async () => {
   expect(stub.sent).toHaveLength(0);
   expect(storedConfig().notifyKey).toBeUndefined();
 });
+
+// --- HTML-only mail. -----------------------------------------------------------
+
+const HTML_ONLY = {
+  ...EMAIL, id: "h1", subject: "Your verification code", text: "", attachments: [],
+  html: '<html><body><h2>Your code</h2><p>It is <strong>558213</strong>, valid 10&nbsp;min.</p>' +
+        '<p><a href="https://app.example.com/v?t=x">Verify</a></p></body></html>',
+};
+
+test("an HTML-only email gets a markdown body written next to the empty text one", async () => {
+  await runSync(["--dir", archive, "--all"], [HTML_ONLY]);
+
+  const p = join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0]);
+  expect(readFileSync(join(p, "body.txt"), "utf8")).toBe("");
+
+  const md = readFileSync(join(p, "body.md"), "utf8");
+  expect(md).toContain("## Your code");
+  expect(md).toContain("**558213**");
+  expect(md).toContain("[Verify](https://app.example.com/v?t=x)");
+  expect(md).not.toContain("<");
+});
+
+test("a message with a plain-text part gets no body.md", async () => {
+  await runSync(["--dir", archive, "--all"], [{ ...EMAIL, attachments: [] }]);
+  const p = join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0]);
+
+  expect(existsSync(join(p, "body.md"))).toBe(false);
+});
+
+test("the notification for an HTML-only email carries the converted text", async () => {
+  // Without the conversion this message would announce an email with no content
+  // at all — which is what HTML-only verification mails used to look like.
+  await runSync(["--dir", archive, "--all", "--notify", KEY]);
+  vi.resetModules();
+
+  const later = { ...HTML_ONLY, date: EMAIL.date + 60_000 };
+  const stub = await runSync(["--dir", archive, "--all"], [later]);
+
+  expect(stub.sent).toHaveLength(1);
+  expect(stub.sent[0].payload.content).toContain("558213");
+});
+
+test("body.html is still only written with --html", async () => {
+  await runSync(["--dir", archive, "--all"], [HTML_ONLY]);
+  const p = join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0]);
+
+  // The HTML is fetched regardless (body.md needs it), but not kept unless asked.
+  expect(existsSync(join(p, "body.html"))).toBe(false);
+  expect(existsSync(join(p, "body.md"))).toBe(true);
+});

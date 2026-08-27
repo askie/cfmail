@@ -4,7 +4,18 @@
   "description": "Command-line client for a cloudflare-email mailbox: read, search, send and administer mail.",
   "type": "module",
   "license": "MIT",
-  "bin": { "cfmail": "bin/cfmail.mjs" },
-  "engines": { "node": ">=20" },
-  "files": ["bin", "src", "README.md"]
+  "bin": {
+    "cfmail": "bin/cfmail.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "dependencies": {
+    "turndown": "^7.2.4"
+  }
 }

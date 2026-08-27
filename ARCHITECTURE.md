@@ -45,6 +45,11 @@
 - **回信复用收信数据**：`in_reply_to` 传一个已存邮件 id，经 `getEmail` 按调用方邮箱鉴权后取出原件，推导收件人、`Re:` 主题以及 `In-Reply-To`/`References` 头。鉴权走的是查询路径同一把锁，因此回不了别人的信。入站 Message-ID 是攻击者可控文本，只有形如 `<...>` 且不含空白的才会被复制进出信头。
 - **失败不抛异常**：D1 查询异常、网络异常、以及两家的错误码（Resend 的 `validation_error`、Cloudflare 的 `E_SENDER_NOT_VERIFIED` 等）都连同处置建议作为结果返回，方便 AI 直接读懂并转述给用户。
 - **两个后端都可缺省**：都没配时只有发信返回提示，收信与查询不受影响。
+- **HTML-only 邮件转 Markdown**：验证码、通知类邮件常常只有 HTML 部分，纯文本为空，直接拿 `text` 去做通知等于什么都不说。`sync` 因此总是请求 HTML（写 `body.html` 仍受 `--html` 控制），纯文本为空时转成 Markdown 存 `body.md`，通知优先 `body.txt`、为空回退 `body.md`。
+
+  **解析和 Markdown 转义都交给 turndown**（`cli/src/html2md.mjs`）。手写过一版，三轮审查挖出三批注入——label 伪造链接、实体双重解码、正文直接写 Markdown——每次都是补完一处又冒出一处。留在自己手里的只有 turndown 有意交给调用方的部分：链接协议白名单（只放行 http/https/mailto 与无 scheme 的链接）、超长跟踪链接降级、图片只取 alt、以及把输出里残留的 `<` 转义掉（turndown 会原样透传行内 HTML）。
+
+
 - **带文件链接的通知只能由本地发**：Worker 在 Cloudflare 上，没有用户的文件系统，只能说「来邮件了」。`cfmail sync` 刚把附件写到盘上，因此只有它知道绝对路径——链接可点，是因为推送发生在写文件的那台机器。代价是时效性取决于 sync 频率；服务端 webhook 与它二选一，同时开会各推一条。
 - **投递状态记在归档目录里**：推送成功才在邮件目录写 `.notified`，失败不写，所以下次 sync 自然重试；候选是「已归档但没有标记的全部邮件」而非「本次新归档的」，失败不会被后续运行漏掉。首次配置 key 时把已有邮件全部标记为已通知，避免把整个邮箱补推进聊天。
 - **迁移自愈**：`refs` 是首批部署之后才加的列。缺列会让每次 INSERT 失败、静默停掉收信，所以 `storeEmail` 前先跑一次幂等的 `ALTER TABLE ... ADD COLUMN`（每 isolate 一次，`duplicate column` 视为已完成，其他错误清缓存下次重试），不依赖运维记得手动迁移。
