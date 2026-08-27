@@ -68,7 +68,7 @@
 ### 第 0 步：拿到代码、登录、建本地配置
 
 ```bash
-git clone <this-repo> && cd cloudflare-email
+git clone <this-repo> && cd cfmail
 npm install
 npx wrangler login                       # 浏览器里登录你的 Cloudflare 账号
 cp wrangler.jsonc wrangler.local.jsonc   # 你的私有配置，不会被上传到代码仓库
@@ -185,8 +185,8 @@ cfmail --help
 想跑仓库里最新未发布的代码，从源码装：
 
 ```bash
-git clone https://github.com/askie/cloudflare-email.git
-cd cloudflare-email/cli && npm i -g $(npm pack | tail -1)
+git clone https://github.com/askie/cfmail.git
+cd cfmail/cli && npm i -g $(npm pack | tail -1)
 ```
 
 > 从源码装时别用 `npm i -g ./cli`：那样装的是指向源码目录的符号链接，仓库一移动

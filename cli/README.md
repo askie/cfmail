@@ -10,8 +10,8 @@ cfmail --help
 想跑仓库里最新未发布的代码，从源码装：
 
 ```bash
-git clone https://github.com/askie/cloudflare-email.git
-cd cloudflare-email/cli && npm i -g $(npm pack | tail -1)
+git clone https://github.com/askie/cfmail.git
+cd cfmail/cli && npm i -g $(npm pack | tail -1)
 ```
 
 > 从源码装时别用 `npm i -g ./cli`：那样装的是一个指向源码目录的符号链接，仓库一
