@@ -63,10 +63,15 @@ cfmail sync --dry-run         # 只看会存什么，不落盘
 ~/cfmail/2026-08-27/0930-发票-Q3-a1b2c3/
     meta.json          发件人、主题、时间、附件清单
     body.txt           纯文本正文
+    body.md            仅当邮件没有纯文本正文时：由 HTML 转成的 Markdown
     body.html          仅 --html 时
     attachments/
         invoice.pdf    原始文件名
 ```
+
+> **HTML-only 邮件也能读**：验证码、通知、营销邮件常常只有 HTML、没有纯文本部分，
+> 这类邮件的 `body.txt` 是空的。服务会把 HTML 转成 Markdown 存进 `body.md`，
+> 标题、加粗、列表、链接都保留，推送到 Grix 的通知也用它——不会再出现"收到新邮件但正文一片空白"。
 
 已经存过的会跳过，所以反复跑很便宜，适合放进定时任务。邮箱再大也会自动翻页取全，目录名带邮件 id 后缀，同一分钟的同主题邮件不会互相覆盖。
 

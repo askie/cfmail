@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, extname, resolve } from "node:path";
 import { isGrixKey, buildMessage, sendToGrix } from "../notify.mjs";
+import { htmlToMarkdown } from "../html2md.mjs";
 import { Mcp } from "../mcp.mjs";
 import { requireConfig, readStoredConfig, saveConfig } from "../config.mjs";
 import { parseArgs } from "../args.mjs";
@@ -19,6 +20,7 @@ export const help = `用法: cfmail sync [--dir <目录>] [选项]
   <目录>/2026-08-27/0930-发票-Q3-a1b2c3/
       meta.json          发件人、收件人、主题、时间、附件清单
       body.txt           纯文本正文
+      body.md            仅当邮件没有纯文本正文时：由 HTML 转成的 Markdown
       body.html          仅 --html 时
       attachments/       附件，保留原始文件名
 
@@ -168,9 +170,15 @@ function pendingNotifications(dir) {
           }))
         : [];
 
-      const text = existsSync(join(folder, "body.txt"))
+      // body.md exists only when the message had no usable plain-text part.
+      const txt = existsSync(join(folder, "body.txt"))
         ? readFileSync(join(folder, "body.txt"), "utf8")
         : "";
+      const text = txt.trim()
+        ? txt
+        : existsSync(join(folder, "body.md"))
+          ? readFileSync(join(folder, "body.md"), "utf8")
+          : "";
       out.push({ rel: join(day, name), folder, files, meta: { ...meta, text } });
     }
   }
@@ -232,12 +240,22 @@ export async function run(argv) {
       continue;
     }
 
-    const mail = await mcp.call("get_email", { id: row.id, include_html: !!opts.html });
+    // Always fetch the HTML part, even without --html: for a message that has no
+    // plain-text part it is the only content there is, and body.md is built from
+    // it. Writing body.html to disk still requires --html.
+    const mail = await mcp.call("get_email", { id: row.id, include_html: true });
     if (!mail || mail.error) continue;
 
     mkdirSync(folder, { recursive: true });
     writeFileSync(join(folder, "body.txt"), mail.text ?? "");
     if (opts.html && mail.html) writeFileSync(join(folder, "body.html"), mail.html);
+
+    // HTML-only mail (verification codes, notifications) has an empty text part;
+    // without this the archive and the notification would both show nothing.
+    if (!mail.text?.trim() && mail.html) {
+      const md = htmlToMarkdown(mail.html);
+      if (md) writeFileSync(join(folder, "body.md"), md + "\n");
+    }
 
     let n = 0;
     let missing = false;

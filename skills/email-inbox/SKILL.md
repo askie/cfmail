@@ -76,6 +76,8 @@ cfmail sync --html           # 连 HTML 正文一起
 
 目录结构是 `~/cfmail/2026-08-27/0930-主题-邮件id/`，里面有 `meta.json`、`body.txt` 和 `attachments/`。已存过的会跳过，邮箱再大也会自动翻页取全。
 
+验证码、通知这类邮件常常只有 HTML 没有纯文本，`body.txt` 会是空的——这时会多一个 `body.md`，是 HTML 转成的 Markdown，推送通知也用它。
+
 清理旧归档：
 
 ```bash
