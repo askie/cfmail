@@ -364,8 +364,14 @@ cfmail admin webhook --set whk_你的key
 收件人: you@你的域名
 主题: 8 月账单
 
+附件 2 个:
+  · 账单.pdf  240 KB
+  · 明细.xlsx  18 KB
+
 账单已生成，请查收附件……
 ```
+
+附件只列文件名和大小，不塞文件内容——要拿文件用 `cfmail read <邮件id>` 找到附件 id，再 `cfmail attachment <附件id> --out <路径>` 下载。
 
 **POST 给你自己的程序**：
 
@@ -373,7 +379,7 @@ cfmail admin webhook --set whk_你的key
 cfmail admin webhook --set https://你的接收地址
 ```
 
-这种方式发的是原始 JSON 事件（含发件人、主题、摘要、附件标记等），适合自己写处理逻辑。
+这种方式发的是原始 JSON 事件（含发件人、主题、摘要，以及完整的附件元信息数组），适合自己写处理逻辑。注意 JSON 事件里的附件是全量列出的，而 Grix 消息里最多列 10 个——前者给程序消费，不怕长。
 
 关掉：`cfmail admin webhook --clear`。查看当前设置：`cfmail admin webhook`。
 

@@ -1,5 +1,6 @@
 import { test, expect, vi, afterEach } from "vitest";
 import { pushNewEmail, isGrixKey, webhookTarget } from "../src/push";
+import type { StoredAttachment } from "../src/types";
 
 const KEY = "whk_71e14a27fa41d71e97f229bc53728dce";
 
@@ -34,7 +35,9 @@ test("a whk_ value is recognised and expanded to the Grix endpoint", () => {
 
 test("a Grix key posts a chat-shaped message to the Grix endpoint", async () => {
   const f = mockFetch();
-  await pushNewEmail(envWith(KEY), ROW);
+  await pushNewEmail(envWith(KEY), ROW, [
+    { id: "a0", email_id: "e1", filename: "receipt.pdf", content_type: "application/pdf", size: 100, r2_key: "k" },
+  ]);
 
   const [url, init] = f.mock.calls[0];
   expect(url).toBe(`https://grix.dhf.pub/v1/webhook/incoming/${KEY}`);
@@ -46,6 +49,7 @@ test("a Grix key posts a chat-shaped message to the Grix endpoint", async () => 
   expect(body.content).toContain("Boss <boss@x.com>");
   expect(body.content).toContain("请查收本季度发票。");
   expect(body.content).toContain("含附件");
+  expect(body.content).toContain("receipt.pdf");
   // It is rendered as a message, so it must not read as a JSON dump.
   expect(body.content).not.toMatch(/^\{/);
 });
@@ -136,4 +140,126 @@ test("truncation never splits a surrogate pair", async () => {
   const content = JSON.parse((f.mock.calls[0][1] as any).body).content;
   expect(content).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
   expect(content).toContain("…");
+});
+
+// --- Attachments are named, not just flagged. ---------------------------------
+
+const FILES: StoredAttachment[] = [
+  { id: "a1", email_id: "e1", filename: "invoice.pdf", content_type: "application/pdf", size: 245_760, r2_key: "k1" },
+  { id: "a2", email_id: "e1", filename: "photo.jpg", content_type: "image/jpeg", size: 2_202_009, r2_key: "k2" },
+];
+
+test("the Grix message lists each attachment with a readable size", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), ROW, FILES);
+
+  const content = JSON.parse((f.mock.calls[0][1] as any).body).content;
+  expect(content).toContain("附件 2 个:");
+  expect(content).toContain("invoice.pdf  240 KB");
+  expect(content).toContain("photo.jpg  2.1 MB");
+  // Naming the files is the point: "（含附件）" alone tells the reader nothing.
+  expect(content).toContain("（含附件）");
+});
+
+test("a tiny attachment is reported in bytes rather than 0 KB", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), ROW, [{ ...FILES[0], filename: "note.txt", size: 12 }]);
+  expect(JSON.parse((f.mock.calls[0][1] as any).body).content).toContain("note.txt  12 B");
+});
+
+test("a long attachment list is capped so the message stays readable", async () => {
+  const many = Array.from({ length: 25 }, (_, i) => ({ ...FILES[0], id: `a${i}`, filename: `f${i}.pdf` }));
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), ROW, many);
+
+  const content = JSON.parse((f.mock.calls[0][1] as any).body).content;
+  expect(content).toContain("附件 25 个:");
+  expect(content).toContain("…还有 15 个");
+  expect(content).not.toContain("f10.pdf");
+});
+
+test("an unnamed attachment still gets a line", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), ROW, [{ ...FILES[0], filename: null }]);
+  expect(JSON.parse((f.mock.calls[0][1] as any).body).content).toContain("(未命名)");
+});
+
+test("no attachments means no attachment section at all", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), { ...ROW, has_attachments: 0 }, []);
+  expect(JSON.parse((f.mock.calls[0][1] as any).body).content).not.toContain("附件");
+});
+
+test("the header never claims attachments the message cannot name", async () => {
+  const f = mockFetch();
+  // The stored flag says yes but no list was loaded: promising files the reader
+  // then cannot see is worse than staying quiet.
+  await pushNewEmail(envWith(KEY), { ...ROW, has_attachments: 1 }, []);
+
+  const content = JSON.parse((f.mock.calls[0][1] as any).body).content;
+  expect(content).not.toContain("（含附件）");
+  expect(content).not.toContain("附件 ");
+});
+
+test("a sender display name cannot inject lines or run away either", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), {
+    ...ROW,
+    from_name: "Boss\n收件人: victim@bank.com\n" + "长".repeat(500),
+    to_addr: "me@my.dev\n主题: 紧急",
+  });
+
+  const lines = JSON.parse((f.mock.calls[0][1] as any).body).content.split("\n");
+  expect(lines.filter((l: string) => l.startsWith("收件人: "))).toHaveLength(1);
+  expect(lines.filter((l: string) => l.startsWith("主题: "))).toHaveLength(1);
+  for (const l of lines) expect([...l].length).toBeLessThan(260);
+});
+
+test("the plain-URL payload carries the attachment metadata too", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith("https://example.com/hook"), ROW, FILES);
+
+  const body = JSON.parse((f.mock.calls[0][1] as any).body);
+  expect(body.attachments).toEqual([
+    { id: "a1", filename: "invoice.pdf", content_type: "application/pdf", size: 245_760 },
+    { id: "a2", filename: "photo.jpg", content_type: "image/jpeg", size: 2_202_009 },
+  ]);
+});
+
+test("a crafted filename cannot inject extra lines into the chat message", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), ROW, [
+    { ...FILES[0], filename: "invoice.pdf\n发件人: 管理员 <admin@bank.com>\n伪造行" },
+  ]);
+
+  const lines = JSON.parse((f.mock.calls[0][1] as any).body).content.split("\n");
+
+  // The crafted text stays inside the one attachment line — it never becomes a
+  // line of its own that could pass for a real header.
+  const forged = lines.filter((l: string) => l.includes("管理员"));
+  expect(forged).toHaveLength(1);
+  expect(forged[0].startsWith("  · ")).toBe(true);
+  expect(lines.filter((l: string) => l.startsWith("发件人: "))).toHaveLength(1);
+  // Prefix-independent: the whole crafted string survives folded onto one line,
+  // so narrowing the whitespace class later would break this immediately.
+  expect(forged[0]).toContain("invoice.pdf 发件人: 管理员 <admin@bank.com> 伪造行");
+});
+
+test("an absurdly long filename is truncated", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), ROW, [{ ...FILES[0], filename: "报销单".repeat(500) + ".pdf" }]);
+
+  const line = JSON.parse((f.mock.calls[0][1] as any).body).content
+    .split("\n").find((l: string) => l.includes("报销单"));
+  expect([...line].length).toBeLessThan(100);
+  expect(line).toContain("…");
+});
+
+test("a size just under a megabyte does not render as 1024 KB", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), ROW, [{ ...FILES[0], size: 1024 * 1024 - 100 }]);
+  const content = JSON.parse((f.mock.calls[0][1] as any).body).content;
+
+  expect(content).not.toContain("1024 KB");
+  expect(content).toContain("1.0 MB");
 });
