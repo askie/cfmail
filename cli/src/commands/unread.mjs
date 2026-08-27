@@ -1,7 +1,7 @@
 import { Mcp } from "../mcp.mjs";
-import { readStoredConfig, saveConfig, requireConfig } from "../config.mjs";
+import { readStoredConfig, saveConfig, requireConfig, listAccounts } from "../config.mjs";
 import { parseArgs } from "../args.mjs";
-import { out, json, isJson, formatDate } from "../output.mjs";
+import { out, json, isJson, formatDate, mailboxTag } from "../output.mjs";
 
 const SPEC = {
   "--peek": "bool", "--all": "bool", "--reset": "bool", "--limit": "number",
@@ -52,8 +52,9 @@ export async function run(argv) {
 
   if (isJson()) return json({ ok: true, count: rows.length, emails: rows });
 
-  if (!rows.length) return out(opts.all ? "没有邮件。" : "没有新邮件。");
-  out(`${rows.length} 封${opts.all ? "邮件" : "未读邮件"}${cfg.email ? `（${cfg.email}）` : ""}：\n`);
+  const tag = mailboxTag(cfg.email, listAccounts("user").names.length);
+  if (!rows.length) return out(`没有${opts.all ? "" : "新"}邮件。${tag}`);
+  out(`${rows.length} 封${opts.all ? "邮件" : "未读邮件"}${tag}：\n`);
   for (const e of rows) {
     out(
       `• [${formatDate(e.date)}] ${e.subject || "(无主题)"}${e.has_attachments ? " 📎" : ""}\n` +

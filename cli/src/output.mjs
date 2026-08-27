@@ -32,6 +32,13 @@ export function fail(msg, extra) {
   process.exit(1);
 }
 
+// With more than one mailbox configured, every command should say which one it
+// acted on — that ambiguity is the reason multi-account support exists.
+export function mailboxTag(email, total) {
+  if (!email) return "";
+  return total > 1 ? `（${email}）` : "";
+}
+
 export function formatDate(ms) {
   if (!ms) return "";
   const d = new Date(ms);
