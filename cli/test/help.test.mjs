@@ -99,3 +99,23 @@ test("a mistyped admin subcommand fails loudly even with --help", () => {
   }
   expect(code).toBe(1);
 });
+
+// --- The overview has to answer the questions people actually arrive with. ----
+
+test("the overview documents the global options, --email included", () => {
+  // It was missing, and a reader with several mailboxes had no way to learn
+  // from the help that per-command selection existed at all.
+  const text = execFileSync("node", [BIN, "--help"], { encoding: "utf8" });
+  for (const flag of ["--email", "--json", "--version", "--help"]) {
+    expect(text, `overview omits ${flag}`).toContain(flag);
+  }
+});
+
+test("the overview explains how several programs share one machine", () => {
+  const text = execFileSync("node", [BIN, "--help"], { encoding: "utf8" });
+
+  expect(text).toMatch(/EMAIL_INBOX_EMAIL/);
+  expect(text).toMatch(/EMAIL_INBOX_CONFIG/);
+  // And warns off the one mechanism that does not survive concurrent use.
+  expect(text).toMatch(/cfmail use/);
+});
