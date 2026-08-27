@@ -6,6 +6,7 @@
 
 import pkg from "../package.json" with { type: "json" };
 import { setJsonMode, out, fail } from "../src/output.mjs";
+import { selectAccount } from "../src/config.mjs";
 
 import * as setup from "../src/commands/setup.mjs";
 import * as unread from "../src/commands/unread.mjs";
@@ -17,10 +18,14 @@ import * as stats from "../src/commands/stats.mjs";
 import * as send from "../src/commands/send.mjs";
 import * as sync from "../src/commands/sync.mjs";
 import * as prune from "../src/commands/prune.mjs";
+import * as accounts from "../src/commands/accounts.mjs";
 import * as admin from "../src/commands/admin.mjs";
 
 const COMMANDS = {
   setup, unread, list, read, search, attachment, stats, send, sync, prune, admin,
+  accounts,
+  use: { help: accounts.useHelp, run: accounts.runUse },
+  forget: { help: accounts.forgetHelp, run: accounts.runForget },
   // Replying is sending with the id given positionally; one implementation.
   reply: { help: send.replyHelp, run: (argv) => send.run(argv, { replyPositional: true }) },
 };
@@ -48,8 +53,12 @@ const USAGE = `cfmail — 收发 cloudflare-email 邮箱的命令行工具
     --forward-attachment <id>     转发收到的附件（不用先下载）
     --text-file <path>            正文从文件读（长正文、中文更省事）
 
-配置
-  cfmail setup --base <url> --email <地址> --key <key>    配置并当场验证
+配置与多邮箱
+  cfmail setup --base <url> --email <地址> --key <key>    配置一个邮箱并当场验证
+  cfmail accounts                                        看本机配了哪些邮箱
+  cfmail use <邮箱>                                       切换当前邮箱
+  cfmail forget <邮箱>                                    删掉本机上这个邮箱的配置
+  任何命令加 --email <地址>                                本次用这个邮箱
 
 管理（需要管理员令牌）
   cfmail admin setup --base <url> --key <admin-token>
@@ -85,6 +94,17 @@ async function main() {
   if (rest.includes("--json")) {
     setJsonMode(true);
     rest = rest.filter((a) => a !== "--json");
+  }
+
+  // --email is global too: it picks which configured mailbox the command acts
+  // on, so no command has to thread it through. `setup` is the exception — there
+  // the address is the account being created, and it parses it itself.
+  const at = rest.indexOf("--email");
+  if (at !== -1 && name !== "setup") {
+    const value = rest[at + 1];
+    if (value === undefined || value.startsWith("--")) fail("--email requires an address");
+    selectAccount(value);
+    rest = rest.filter((_, i) => i !== at && i !== at + 1);
   }
   // A command that dispatches further exports `help` as a function, so it can
   // answer for whichever subcommand was asked about. Returning nothing means it

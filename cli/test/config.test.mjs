@@ -24,6 +24,7 @@ afterEach(() => {
 
 test("environment values win over the file", () => {
   writeFileSync(process.env.EMAIL_INBOX_CONFIG, JSON.stringify({ base: "https://file", key: "fk" }));
+  // (a pre-multi-account file, read as a single mailbox)
   process.env.EMAIL_INBOX_KEY = "envkey";
   const cfg = loadConfig("user");
 
@@ -59,10 +60,11 @@ test("readStoredConfig returns an empty object when there is no file", () => {
 
 test("saving tightens permissions on an existing loose file", () => {
   writeFileSync(process.env.EMAIL_INBOX_CONFIG, "{}", { mode: 0o644 });
-  saveConfig({ base: "https://h", key: "k" }, "user");
+  saveConfig({ email: "me@x.com", base: "https://h", key: "k" }, "user");
 
   expect(statSync(process.env.EMAIL_INBOX_CONFIG).mode & 0o777).toBe(0o600);
-  expect(JSON.parse(readFileSync(process.env.EMAIL_INBOX_CONFIG, "utf8")).key).toBe("k");
+  const file = JSON.parse(readFileSync(process.env.EMAIL_INBOX_CONFIG, "utf8"));
+  expect(file.accounts["me@x.com"].key).toBe("k");
 });
 
 test("XDG_CONFIG_HOME decides the default path", () => {

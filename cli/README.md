@@ -30,6 +30,44 @@ cfmail admin setup --base https://mail.example.com --key <MCP_TOKEN>
 
 环境变量优先于配置文件：`EMAIL_INBOX_BASE` / `EMAIL_INBOX_EMAIL` / `EMAIL_INBOX_KEY` / `EMAIL_INBOX_CONFIG`（管理端同理 `EMAIL_ADMIN_*`），便于在脚本里切换邮箱。
 
+## 一台机器多个邮箱
+
+对每个邮箱各跑一次 `setup` 就行，它们各有自己的密钥、未读游标、归档目录和通知设置，互不干扰。
+
+```bash
+cfmail setup --base https://mail.example.com --email me@example.com  --key <Key1>
+cfmail setup --base https://mail.example.com --email work@example.com --key <Key2>
+
+cfmail accounts            # 看本机配了哪些，▸ 标出当前那个
+cfmail use work@example.com # 切换当前邮箱
+cfmail forget old@example.com  # 删掉本机上这个邮箱的配置（不动服务端）
+```
+
+不想切换、只想临时用一次别的邮箱：**任何命令都能带 `--email`**。
+
+```bash
+cfmail unread --email work@example.com
+cfmail send --email work@example.com --to a@x.com --subject s --text b
+```
+
+配了多个之后，输出会标明当前是哪个邮箱：
+
+```
+$ cfmail unread
+1 封未读邮件（work@example.com）：
+```
+
+没选中而本机又有好几个时，命令会直接告诉你有哪些、怎么选：
+
+```
+error: no mailbox selected, and this machine has several.
+configured: me@example.com, work@example.com
+Pick one with: cfmail use <address>   (or add --email <address> to this command)
+```
+
+> 选哪个邮箱的优先级：命令上的 `--email` → 环境变量 `EMAIL_INBOX_EMAIL` → 配置里记的当前邮箱。
+> 只配了一个时不用管这些，怎么写都是它。
+
 ## 收信
 
 ```bash

@@ -44,7 +44,10 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "cfmail-sync-"));
   archive = join(dir, "mail");
   process.env.EMAIL_INBOX_CONFIG = join(dir, "cfg.json");
-  writeFileSync(process.env.EMAIL_INBOX_CONFIG, JSON.stringify({ base: "https://h", key: "k" }));
+  writeFileSync(process.env.EMAIL_INBOX_CONFIG, JSON.stringify({
+    current: "me@my.dev",
+    accounts: { "me@my.dev": { base: "https://h", key: "k" } },
+  }));
   printed = [];
   vi.spyOn(process.stdout, "write").mockImplementation((s) => { printed.push(s); return true; });
 });
@@ -138,7 +141,7 @@ test("an attachment with no filename falls back to its id", async () => {
 
 test("the archive folder is remembered so later runs need no --dir", async () => {
   await runSync(["--dir", archive, "--all"]);
-  const cfg = JSON.parse(readFileSync(process.env.EMAIL_INBOX_CONFIG, "utf8"));
+  const cfg = storedConfig();
   expect(cfg.syncDir).toBe(archive);
   expect(cfg.syncCursor).toBe(EMAIL.date);
 });
@@ -181,7 +184,7 @@ test("an email whose attachments cannot be fetched is retried next run", async (
   const p = join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0]);
   // No meta.json means "not fully archived", and the cursor must not move past it.
   expect(existsSync(join(p, "meta.json"))).toBe(false);
-  expect(JSON.parse(readFileSync(process.env.EMAIL_INBOX_CONFIG, "utf8")).syncCursor).toBe(0);
+  expect(storedConfig().syncCursor).toBe(0);
   expect(printed.join("")).toMatch(/附件没取全/);
 });
 
@@ -226,8 +229,10 @@ test("an archive with no new mail this run is still marked", async () => {
 
 const KEY = "whk_abc123";
 
+// The stored settings for the mailbox these tests act as.
 function storedConfig() {
-  return JSON.parse(readFileSync(process.env.EMAIL_INBOX_CONFIG, "utf8"));
+  const file = JSON.parse(readFileSync(process.env.EMAIL_INBOX_CONFIG, "utf8"));
+  return file.accounts[file.current] || {};
 }
 
 test("turning notifications on marks existing mail as seen instead of replaying it", async () => {
@@ -309,7 +314,10 @@ test("a relative archive path from an older config is made absolute", async () =
   // A relative syncDir would produce file://mail/... links that open nothing,
   // and saving it back would keep it broken forever.
   writeFileSync(process.env.EMAIL_INBOX_CONFIG, JSON.stringify({
-    base: "https://h", key: "k", syncDir: "relative-archive", notifyKey: KEY,
+    current: "me@my.dev",
+    accounts: {
+      "me@my.dev": { base: "https://h", key: "k", syncDir: "relative-archive", notifyKey: KEY },
+    },
   }));
   const cwd = process.cwd();
   process.chdir(dir);

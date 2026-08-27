@@ -47,6 +47,18 @@ cfmail setup --base <服务地址> --email <你的邮箱> --key <你的API Key>
 
 命令会当场连服务验证，看到 `✅ Connected` 才算成功。配置写到 `~/.config/email-inbox/config.json`，Key 只存在本机这个文件里。
 
+## 一台机器多个邮箱
+
+对每个邮箱各跑一次 `cfmail setup` 即可，它们各有自己的密钥、未读游标、归档目录和通知设置。
+
+```bash
+cfmail accounts              # 看本机配了哪些，▸ 是当前那个
+cfmail use <邮箱>             # 切换当前邮箱
+cfmail unread --email <邮箱>  # 只这一次用别的邮箱，不改当前设置
+```
+
+配了多个之后，命令输出会标明当前是哪个邮箱。
+
 ## 收邮件
 
 ```bash
@@ -146,8 +158,9 @@ cfmail send --to a@x.com --subject s --text b --json
 4. 「回复这封」→ 用 `cfmail reply <邮件id>`，不要手工拼收件人和主题。要连附件一起转，先 `cfmail read` 拿附件 id，再加 `--forward-attachment`。
 5. 正文超过一两行、或含中文和换行时，先把正文写进临时文件再用 `--text-file`，比在命令行里塞长字符串可靠。
 6. **发信前先把收件人、主题、正文复述给用户确认**，尤其收件人不是用户自己时——邮件发出去收不回来。
-7. 用户说「把邮件存到本地 / 备份下来」→ `cfmail sync --dir <目录>`；说「新邮件通知我 / 推到聊天里」→ `cfmail sync --notify <whk_key>`；说「清理旧邮件」→ 先跑不带 `--yes` 的 `cfmail prune --older-than <期限>` 把清单给用户看，**确认后**再加 `--yes`。
-8. 需要程序化处理结果时加 `--json`，靠退出码判断成败。
+7. 用户提到某个具体邮箱（「看看工作邮箱有没有新邮件」）而本机配了多个时，用 `--email <地址>` 指定，别贸然 `cfmail use` 改掉他的当前设置。不确定有哪些就先跑 `cfmail accounts`。
+8. 用户说「把邮件存到本地 / 备份下来」→ `cfmail sync --dir <目录>`；说「新邮件通知我 / 推到聊天里」→ `cfmail sync --notify <whk_key>`；说「清理旧邮件」→ 先跑不带 `--yes` 的 `cfmail prune --older-than <期限>` 把清单给用户看，**确认后**再加 `--yes`。
+9. 需要程序化处理结果时加 `--json`，靠退出码判断成败。
 
 ## 故障排查
 
