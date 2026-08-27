@@ -22,13 +22,15 @@ description: Read and send mail through a cloudflare-email mailbox using the cfm
 cfmail --version
 ```
 
-没有就装，两种来源任选（需要 Node 20+）：
+没有就装（需要 Node 20+）：
 
 ```bash
-# 已经有仓库
-cd /path/to/cloudflare-email/cli && npm i -g $(npm pack | tail -1)
+npm install -g cfmail
+```
 
-# 没有仓库就先取一份（npm 不支持直接装 git 仓库的子目录）
+要跑仓库里最新未发布的代码才用源码安装：
+
+```bash
 git clone https://github.com/askie/cloudflare-email.git
 cd cloudflare-email/cli && npm i -g $(npm pack | tail -1)
 ```
