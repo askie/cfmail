@@ -2,9 +2,11 @@
 // CLI does not orphan an existing setup. User and admin credentials stay in
 // separate files: the admin key must never sit next to a key handed to a user.
 //
-// The user file holds several mailboxes, keyed by address, plus which one is
-// current — the shape aws-cli and kubectl use, and for the same reason: most
-// commands should not have to name an account, but any command must be able to.
+// One config file holds exactly one mailbox. Anything that would let a command
+// act on a *different* mailbox than the last one has to be state shared between
+// processes, and shared state is what makes two programs step on each other.
+// Running a second mailbox means pointing EMAIL_INBOX_CONFIG at a second file —
+// separate key, separate unread cursor, separate archive, nothing in common.
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, renameSync, unlinkSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -16,14 +18,6 @@ const SCOPES = {
   user: { dir: "email-inbox", envPrefix: "EMAIL_INBOX" },
   admin: { dir: "email-admin", envPrefix: "EMAIL_ADMIN" },
 };
-
-// Set by the entry point from a global --email, so no command has to thread it
-// through. Empty means "whatever the file says is current".
-let selected = "";
-
-export function selectAccount(email) {
-  selected = String(email || "").trim();
-}
 
 export function configPath(scope = "user") {
   const { dir, envPrefix } = SCOPES[scope];
@@ -43,7 +37,7 @@ function readFile(scope) {
   }
 }
 
-// Write through a temporary file and rename into place. Several agents can be
+// Write through a temporary file and rename into place. Two programs can be
 // running this CLI against the same config at once; a plain write leaves the
 // file truncated for an instant, and another process reading right then sees
 // invalid JSON and exits. rename() is atomic, so a reader sees either the old
@@ -66,95 +60,57 @@ function writeFile(data, scope) {
   return path;
 }
 
-// A file written before multi-account support holds one mailbox at the top
-// level. Reading it as one account keeps every existing setup working, and the
-// next write persists the new shape.
+// A file written by the version that kept several mailboxes in one file is read
+// as its selected mailbox, so an existing setup keeps working; the next write
+// stores the flat shape. A file holding more than one has to be split by hand —
+// guessing which mailbox was meant would be worse than saying so.
 function normalize(raw, path) {
-  if (!raw || typeof raw !== "object") return { current: "", accounts: {} };
-
-  if ("accounts" in raw && raw.accounts !== null) {
-    // Present but not a map of mailboxes: report it rather than silently
-    // behaving as though nothing were configured.
-    if (typeof raw.accounts !== "object" || Array.isArray(raw.accounts)) {
-      fail(`config file is malformed: "accounts" should be an object of mailboxes\n  ${path}`);
-    }
-    const accounts = {};
-    for (const [name, value] of Object.entries(raw.accounts)) {
-      accounts[name] = value && typeof value === "object" ? value : {};
-    }
-    return { current: typeof raw.current === "string" ? raw.current : "", accounts };
+  if (!raw || typeof raw !== "object") return {};
+  if (!raw.accounts || typeof raw.accounts !== "object" || Array.isArray(raw.accounts)) {
+    const { accounts, current, ...flat } = raw;
+    return flat;
   }
 
-  if (raw.base || raw.key) {
-    // Drop the keys that belong to the file rather than to a mailbox, so the
-    // converted account carries only its own settings.
-    const { email = "", current, accounts, ...rest } = raw;
-    const name = email || "(default)";
-    return { current: name, accounts: { [name]: rest } };
+  const names = Object.keys(raw.accounts);
+  const name = names.includes(raw.current) ? raw.current : (names.length === 1 ? names[0] : "");
+  if (!name) {
+    if (!names.length) return {};
+    fail(
+      `this config holds ${names.length} mailboxes, and cfmail now uses one file per mailbox.\n` +
+      `  ${path}\n` +
+      `configured: ${names.join(", ")}\n` +
+      `Give each one its own file and point EMAIL_INBOX_CONFIG at it, for example:\n` +
+      `  EMAIL_INBOX_CONFIG=~/.config/email-inbox/${names[0]}.json cfmail setup --base <url> --email ${names[0]} --key <key>`
+    );
   }
-
-  return { current: "", accounts: {} };
-}
-
-export function accountsFile(scope = "user") {
-  return normalize(readFile(scope), configPath(scope));
-}
-
-export function listAccounts(scope = "user") {
-  const file = accountsFile(scope);
-  return {
-    current: currentName(file),
-    names: Object.keys(file.accounts).sort(),
-    accounts: file.accounts,
-  };
-}
-
-// Which account a command should act on: an explicit --email, then the
-// environment, then whatever the file marks current, then the only one there is.
-function currentName(file) {
-  const named = selected || process.env.EMAIL_INBOX_EMAIL || file.current || "";
-  if (named) return named;
-  const names = Object.keys(file.accounts);
-  return names.length === 1 ? names[0] : "";
+  const stored = raw.accounts[name];
+  return { ...(stored && typeof stored === "object" ? stored : {}), email: name };
 }
 
 export function loadConfig(scope = "user") {
   const { envPrefix } = SCOPES[scope];
-
-  if (scope === "admin") {
-    const raw = readFile("admin");
-    return {
-      base: (process.env.EMAIL_ADMIN_BASE || raw.base || "").replace(/\/+$/, ""),
-      key: process.env.EMAIL_ADMIN_KEY || raw.key || "",
-    };
-  }
-
-  const file = accountsFile("user");
-  const name = currentName(file);
-  const stored = file.accounts[name] || {};
+  const stored = scope === "admin" ? readFile("admin") : readStoredConfig("user");
 
   // Environment wins over the file, so a script can borrow another mailbox's
   // credentials for one run without touching what is on disk.
   return {
     ...stored,
-    email: name,
     base: (process.env[`${envPrefix}_BASE`] || stored.base || "").replace(/\/+$/, ""),
     key: process.env[`${envPrefix}_KEY`] || stored.key || "",
   };
 }
 
-// What is on disk for the account in play, with no environment merged in.
-// Writing back a value that only came from the environment would silently
-// persist credentials meant for one command.
+// What is on disk, with no environment merged in. Writing back a value that only
+// came from the environment would silently persist credentials meant for one
+// command.
 export function readStoredConfig(scope = "user") {
   if (scope === "admin") return readFile("admin");
-  const file = accountsFile("user");
-  return { ...(file.accounts[currentName(file)] || {}) };
+  return normalize(readFile("user"), configPath("user"));
 }
 
-// An update is read-modify-write, and several agents may be doing it at once —
-// two of them reading the same file and writing back in turn loses whichever
-// change landed first. The lock makes each update see the previous one.
+// An update is read-modify-write, and two programs may be doing it at once —
+// both reading the same file and writing back in turn loses whichever change
+// landed first. The lock makes each update see the previous one.
 //
 // Held for a single file rewrite (well under a millisecond), so waiting is
 // cheap; a hard timeout means a crashed process cannot wedge every later run.
@@ -199,52 +155,10 @@ function sleepBriefly() {
   while (Date.now() < until) { /* spin */ }
 }
 
-// Save the account in play. Fields not given are left as they are, so a command
-// updating a cursor cannot wipe the mailbox's other settings.
+// Fields not given are left as they are, so a command updating a cursor cannot
+// wipe the mailbox's other settings.
 export function saveConfig(cfg, scope = "user") {
-  return withConfigLock(scope, () => {
-    if (scope === "admin") return writeFile({ ...readFile("admin"), ...cfg }, "admin");
-
-    const file = accountsFile("user");
-    const { email, ...rest } = cfg;
-    const name = email || currentName(file);
-    if (!name) fail("no mailbox selected. Run `cfmail setup --email <address> ...` first.");
-
-    file.accounts[name] = { ...(file.accounts[name] || {}), ...rest };
-    if (!file.current) file.current = name;
-    return writeFile(file, "user");
-  });
-}
-
-export function setCurrentAccount(email, scope = "user") {
-  return withConfigLock(scope, () => setCurrentAccountLocked(email, scope));
-}
-
-function setCurrentAccountLocked(email, scope) {
-  const file = accountsFile(scope);
-  if (!file.accounts[email]) {
-    const known = Object.keys(file.accounts);
-    fail(
-      `no mailbox configured for ${email}.` +
-      (known.length ? `\nconfigured: ${known.join(", ")}` : "") +
-      `\nAdd it with: cfmail setup --base <url> --email ${email} --key <key>`
-    );
-  }
-  file.current = email;
-  return writeFile(file, scope);
-}
-
-export function removeAccount(email, scope = "user") {
-  return withConfigLock(scope, () => removeAccountLocked(email, scope));
-}
-
-function removeAccountLocked(email, scope) {
-  const file = accountsFile(scope);
-  if (!file.accounts[email]) fail(`no mailbox configured for ${email}`);
-  delete file.accounts[email];
-  if (file.current === email) file.current = Object.keys(file.accounts)[0] || "";
-  writeFile(file, scope);
-  return file.current;
+  return withConfigLock(scope, () => writeFile({ ...readStoredConfig(scope), ...cfg }, scope));
 }
 
 // Every command that talks to the service goes through this, so the "you have
@@ -253,16 +167,6 @@ export function requireConfig(scope = "user") {
   const cfg = loadConfig(scope);
   const setup = scope === "admin" ? "cfmail admin setup" : "cfmail setup";
 
-  if (scope === "user" && !cfg.base && !cfg.key) {
-    const { names } = listAccounts("user");
-    if (names.length > 1) {
-      fail(
-        `no mailbox selected, and this machine has several.\n` +
-        `configured: ${names.join(", ")}\n` +
-        `Pick one with: cfmail use <address>   (or add --email <address> to this command)`
-      );
-    }
-  }
   if (!cfg.base) fail(`no service URL configured. Run: ${setup} --base <url> ...`);
   if (!cfg.key) fail(`no API key configured. Run: ${setup} ... --key <key>`);
   return cfg;

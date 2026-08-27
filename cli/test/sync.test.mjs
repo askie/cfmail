@@ -50,8 +50,7 @@ beforeEach(() => {
   archive = join(dir, "mail");
   process.env.EMAIL_INBOX_CONFIG = join(dir, "cfg.json");
   writeFileSync(process.env.EMAIL_INBOX_CONFIG, JSON.stringify({
-    current: "me@my.dev",
-    accounts: { "me@my.dev": { base: "https://h", key: "k" } },
+    email: "me@my.dev", base: "https://h", key: "k",
   }));
   printed = [];
   vi.spyOn(process.stdout, "write").mockImplementation((s) => { printed.push(s); return true; });
@@ -267,8 +266,7 @@ const KEY = "whk_abc123";
 
 // The stored settings for the mailbox these tests act as.
 function storedConfig() {
-  const file = JSON.parse(readFileSync(process.env.EMAIL_INBOX_CONFIG, "utf8"));
-  return file.accounts[file.current] || {};
+  return JSON.parse(readFileSync(process.env.EMAIL_INBOX_CONFIG, "utf8"));
 }
 
 test("turning notifications on marks existing mail as seen instead of replaying it", async () => {
@@ -351,10 +349,7 @@ test("a relative archive path from an older config is made absolute", async () =
   // A relative syncDir would produce file://mail/... links that open nothing,
   // and saving it back would keep it broken forever.
   writeFileSync(process.env.EMAIL_INBOX_CONFIG, JSON.stringify({
-    current: "me@my.dev",
-    accounts: {
-      "me@my.dev": { base: "https://h", key: "k", syncDir: "relative-archive", notifyKey: KEY },
-    },
+    email: "me@my.dev", base: "https://h", key: "k", syncDir: "relative-archive", notifyKey: KEY,
   }));
   const cwd = process.cwd();
   process.chdir(dir);
@@ -520,13 +515,10 @@ test("mail lands under the mailbox, not directly under the archive root", async 
 test("two mailboxes sharing a root keep their own day folders", async () => {
   await runSync(["--dir", archive, "--all"], [{ ...EMAIL, attachments: [] }]);
 
-  // A second mailbox, same root.
+  // A second mailbox: its own config file, as the CLI now expects.
+  process.env.EMAIL_INBOX_CONFIG = join(dir, "other.json");
   writeFileSync(process.env.EMAIL_INBOX_CONFIG, JSON.stringify({
-    current: "other@my.dev",
-    accounts: {
-      "me@my.dev": { base: "https://h", key: "k" },
-      "other@my.dev": { base: "https://h", key: "k2" },
-    },
+    email: "other@my.dev", base: "https://h", key: "k2",
   }));
   vi.resetModules();
 

@@ -1,5 +1,5 @@
 import { Mcp } from "../mcp.mjs";
-import { readStoredConfig, saveConfig, requireConfig, listAccounts } from "../config.mjs";
+import { readStoredConfig, saveConfig, requireConfig } from "../config.mjs";
 import { parseArgs } from "../args.mjs";
 import { out, json, isJson, formatDate, mailboxTag } from "../output.mjs";
 
@@ -52,7 +52,7 @@ export async function run(argv) {
 
   if (isJson()) return json({ ok: true, count: rows.length, emails: rows });
 
-  const tag = mailboxTag(cfg.email, listAccounts("user").names.length);
+  const tag = mailboxTag(cfg.email);
   if (!rows.length) return out(`没有${opts.all ? "" : "新"}邮件。${tag}`);
   out(`${rows.length} 封${opts.all ? "邮件" : "未读邮件"}${tag}：\n`);
   for (const e of rows) {

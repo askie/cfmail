@@ -6,7 +6,6 @@
 
 import pkg from "../package.json" with { type: "json" };
 import { setJsonMode, out, fail } from "../src/output.mjs";
-import { selectAccount } from "../src/config.mjs";
 
 import * as setup from "../src/commands/setup.mjs";
 import * as unread from "../src/commands/unread.mjs";
@@ -18,14 +17,12 @@ import * as stats from "../src/commands/stats.mjs";
 import * as send from "../src/commands/send.mjs";
 import * as sync from "../src/commands/sync.mjs";
 import * as prune from "../src/commands/prune.mjs";
-import * as accounts from "../src/commands/accounts.mjs";
+import * as config from "../src/commands/config.mjs";
 import * as admin from "../src/commands/admin.mjs";
 
 const COMMANDS = {
   setup, unread, list, read, search, attachment, stats, send, sync, prune, admin,
-  accounts,
-  use: { help: accounts.useHelp, run: accounts.runUse },
-  forget: { help: accounts.forgetHelp, run: accounts.runForget },
+  config,
   // Replying is sending with the id given positionally; one implementation.
   reply: { help: send.replyHelp, run: (argv) => send.run(argv, { replyPositional: true }) },
 };
@@ -53,12 +50,9 @@ const USAGE = `cfmail — 收发 cloudflare-email 邮箱的命令行工具
     --forward-attachment <id>     转发收到的附件（不用先下载）
     --text-file <path>            正文从文件读（长正文、中文更省事）
 
-配置与多邮箱
-  cfmail setup --base <url> --email <地址> --key <key>    配置一个邮箱并当场验证
-  cfmail accounts                                        看本机配了哪些邮箱
-  cfmail use <邮箱>                                       切换当前邮箱
-  cfmail forget <邮箱>                                    删掉本机上这个邮箱的配置
-  任何命令加 --email <地址>                                本次用这个邮箱
+配置
+  cfmail setup --base <url> --email <地址> --key <key>    配置邮箱并当场验证
+  cfmail config                                          看当前配的是哪个邮箱
 
 管理（需要管理员令牌）
   cfmail admin setup --base <url> --key <admin-token>
@@ -68,7 +62,6 @@ const USAGE = `cfmail — 收发 cloudflare-email 邮箱的命令行工具
   cfmail admin webhook [--set <url>|--clear]
 
 通用
-  --email <地址>  本次用哪个邮箱（配了多个时）
   --json          机器可读输出（失败也是 JSON，且退出码非 0）
   --version       看版本
 
@@ -77,21 +70,19 @@ const USAGE = `cfmail — 收发 cloudflare-email 邮箱的命令行工具
   cfmail prune --help
   cfmail admin webhook --help
 
-多个程序（比如几个 Agent）同时用
-  各自指定邮箱，别依赖「当前邮箱」——那是写在配置文件里的共享状态，
-  谁后跑谁说了算，几个程序各自 cfmail use 会互相覆盖。
+一份配置 = 一个邮箱
+  没有「当前邮箱」这种共享设置，所以不存在被别的程序改掉的问题。
+  要再收一个邮箱，就再开一份配置：
 
-    cfmail unread --email box@example.com       每条命令自己带
-    EMAIL_INBOX_EMAIL=box@example.com           整个进程固定一个（推荐给 Agent）
+    export EMAIL_INBOX_CONFIG=~/.config/email-inbox/work.json
+    cfmail setup --base <服务地址> --email work@example.com --key <Key>
+    cfmail unread                               这个进程之后都走 work 这份
 
-  想连未读游标也完全独立（比如两个程序要各自读同一个邮箱）：
-
-    EMAIL_INBOX_CONFIG=~/.config/agent-a.json   各用各的配置文件
-
-  配置文件本身可以并发读写：不会丢更新，也不会读到写了一半的内容。
+  密钥、未读游标、归档目录、推送设置都在各自的文件里，互相看不见。
+  几个 Agent 同时跑，各设各的 EMAIL_INBOX_CONFIG 就行。
+  同一份配置被并发读写也是安全的：不会丢更新，也不会读到写了一半的内容。
 
 环境变量（优先于配置文件）
-  EMAIL_INBOX_EMAIL   选用哪个邮箱
   EMAIL_INBOX_CONFIG  配置文件路径，换一个就是一套完全独立的设置
   EMAIL_INBOX_BASE    服务地址
   EMAIL_INBOX_KEY     API Key
@@ -114,16 +105,6 @@ async function main() {
     rest = rest.filter((a) => a !== "--json");
   }
 
-  // --email is global too: it picks which configured mailbox the command acts
-  // on, so no command has to thread it through. `setup` is the exception — there
-  // the address is the account being created, and it parses it itself.
-  const at = rest.indexOf("--email");
-  if (at !== -1 && name !== "setup") {
-    const value = rest[at + 1];
-    if (value === undefined || value.startsWith("--")) fail("--email requires an address");
-    selectAccount(value);
-    rest = rest.filter((_, i) => i !== at && i !== at + 1);
-  }
   // A command that dispatches further exports `help` as a function, so it can
   // answer for whichever subcommand was asked about. Returning nothing means it
   // did not recognise the subcommand — fall through to run(), which reports the

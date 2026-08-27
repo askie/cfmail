@@ -5,8 +5,9 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Several agents drive this CLI at once. The config is shared, so every write
-// has to survive that: no torn reads, no lost updates, no leftover temp files.
+// One config file, several programs writing to it at once — `cfmail sync` moving
+// its archive cursor while `cfmail unread` moves the unread one, on a schedule.
+// Every write has to survive that: no torn reads, no lost updates, no leftovers.
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WRITER = join(ROOT, "test", "fixtures", "cursor-writer.mjs");
@@ -23,21 +24,21 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 function seed(count) {
-  const accounts = {};
-  for (let i = 0; i < count; i++) {
-    accounts[`m${i}@x.com`] = { base: "https://h", key: `k${i}`, cursor: 0 };
-  }
-  writeFileSync(cfg, JSON.stringify({ current: "m0@x.com", accounts }));
-  return Object.keys(accounts);
+  const fields = Array.from({ length: count }, (_, i) => `w${i}`);
+  writeFileSync(cfg, JSON.stringify({
+    base: "https://h", email: "me@x.com", key: "k",
+    ...Object.fromEntries(fields.map((f) => [f, 0])),
+  }));
+  return fields;
 }
 
-// Run one writer per mailbox, all at once, and wait for them all.
-function raceWriters(mailboxes, rounds) {
-  const running = mailboxes.map((m) =>
+// Run one writer per field, all at once, and wait for them all.
+function raceWriters(fields, rounds) {
+  const running = fields.map((f) =>
     new Promise((resolve, reject) => {
       import("node:child_process").then(({ execFile }) => {
-        execFile("node", [WRITER, cfg, m, String(rounds)], (err, _out, stderr) =>
-          err ? reject(new Error(`${m}: ${stderr || err.message}`)) : resolve());
+        execFile("node", [WRITER, cfg, f, String(rounds)], (err, _out, stderr) =>
+          err ? reject(new Error(`${f}: ${stderr || err.message}`)) : resolve());
       });
     })
   );
@@ -47,32 +48,29 @@ function raceWriters(mailboxes, rounds) {
 test("concurrent writers do not lose each other's updates", async () => {
   // Before the config lock this ended with cursors stuck at 2 and one writer
   // dead on a half-written file.
-  const boxes = seed(4);
-  await raceWriters(boxes, 30);
+  const fields = seed(4);
+  await raceWriters(fields, 30);
 
   const after = read();
-  for (const m of boxes) {
-    expect(after.accounts[m].cursor, `${m} lost updates`).toBe(30);
+  for (const f of fields) {
+    expect(after[f], `${f} lost updates`).toBe(30);
   }
 });
 
 test("no writer sees a half-written file", async () => {
   // A plain writeFileSync truncates first; a reader landing in that window got
   // "Unexpected end of JSON input" and exited non-zero.
-  const boxes = seed(4);
-  await expect(raceWriters(boxes, 30)).resolves.toBeDefined();
+  const fields = seed(4);
+  await expect(raceWriters(fields, 30)).resolves.toBeDefined();
 });
 
-test("unrelated mailboxes keep their settings through the race", async () => {
-  const boxes = seed(4);
-  await raceWriters(boxes, 20);
+test("settings nobody is writing survive the race", async () => {
+  await raceWriters(seed(4), 20);
 
   const after = read();
-  expect(Object.keys(after.accounts).sort()).toEqual(boxes.sort());
-  for (const m of boxes) {
-    expect(after.accounts[m].key).toBe(`k${m.slice(1, m.indexOf("@"))}`);
-    expect(after.accounts[m].base).toBe("https://h");
-  }
+  expect(after.base).toBe("https://h");
+  expect(after.email).toBe("me@x.com");
+  expect(after.key).toBe("k");
 });
 
 test("nothing is left behind in the config directory", async () => {
@@ -95,6 +93,6 @@ test("a stale lock from a crashed writer does not wedge later runs", async () =>
   const { utimesSync } = await import("node:fs");
   utimesSync(`${cfg}.lock`, old, old);
 
-  execFileSync("node", [WRITER, cfg, "m0@x.com", "3"], { encoding: "utf8" });
-  expect(read().accounts["m0@x.com"].cursor).toBe(3);
+  execFileSync("node", [WRITER, cfg, "w0", "3"], { encoding: "utf8" });
+  expect(read().w0).toBe(3);
 });
