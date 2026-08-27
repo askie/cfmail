@@ -1,6 +1,6 @@
 {
   "name": "cfmail",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Command-line client for a cloudflare-email mailbox: read, search, send and administer mail.",
   "type": "module",
   "license": "MIT",
