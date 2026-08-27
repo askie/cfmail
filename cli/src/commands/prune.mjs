@@ -30,7 +30,7 @@ export const help = `用法: cfmail prune --older-than <期限> [--dir <目录>]
 示例:
   cfmail prune --older-than 90d           预演，看看会删什么
   cfmail prune --older-than 90d --yes     确认后真删
-  cfmail prune --older-than 6m --dir ~/mail --yes
+  cfmail prune --older-than 6m --dir ~/cfmail --yes
 
 放进 cron 自动跑:
   0 4 * * *  cfmail sync && cfmail prune --older-than 90d --yes`;
