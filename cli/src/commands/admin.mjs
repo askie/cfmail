@@ -92,7 +92,10 @@ function describeWebhook(res) {
   if (!res?.webhook) return "尚未配置新邮件通知。";
   if (res.kind !== "grix") return `新邮件会 POST 到: ${res.webhook}`;
   // The key is the entire credential — anyone holding it can post to that chat.
-  const masked = `${res.webhook.slice(0, 12)}…${res.webhook.slice(-4)}`;
+  // A short key would show in full (and repeat its tail) if sliced blindly.
+  const masked = res.webhook.length > 16
+    ? `${res.webhook.slice(0, 12)}…${res.webhook.slice(-4)}`
+    : `${res.webhook.slice(0, 4)}…`;
   return `新邮件会作为聊天消息推送到 Grix\nKey: ${masked}`;
 }
 
