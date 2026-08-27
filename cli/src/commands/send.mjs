@@ -25,8 +25,9 @@ export const replyHelp = `用法: cfmail reply <邮件id> --text <正文> [选�
   --to <地址>        额外收件人。默认只回给原发件人
   --cc <地址>        抄送，可重复
   --subject <主题>   覆盖自动生成的 Re: 主题。原邮件没主题时必须给
-  --attach <路径>            附上本地文件，可重复
-  --forward-attachment <id>  转发已存附件，可重复
+  --attach <路径>    附上本地文件，可重复
+  --forward-attachment <id>
+                     转发已存附件，可重复
   --json             输出 JSON
 
 示例:

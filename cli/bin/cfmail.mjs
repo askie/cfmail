@@ -86,10 +86,11 @@ async function main() {
     setJsonMode(true);
     rest = rest.filter((a) => a !== "--json");
   }
-  // `admin` dispatches further, so it handles --help itself and can answer for
-  // each of its subcommands.
-  const wantsHelp = rest.includes("--help") || rest.includes("-h");
-  if (wantsHelp && name !== "admin") return out(cmd.help);
+  // A command that dispatches further exports `help` as a function, so it can
+  // answer for whichever subcommand was asked about.
+  if (rest.includes("--help") || rest.includes("-h")) {
+    return out(typeof cmd.help === "function" ? cmd.help(rest) : cmd.help);
+  }
 
   await cmd.run(rest);
 }

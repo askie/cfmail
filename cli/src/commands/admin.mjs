@@ -6,7 +6,7 @@ import { loadConfig, readStoredConfig, saveConfig, requireConfig, configPath } f
 import { parseArgs } from "../args.mjs";
 import { out, json, fail, isJson } from "../output.mjs";
 
-export const help = `用法: cfmail admin <子命令> [参数]
+const OVERVIEW = `用法: cfmail admin <子命令> [参数]
 
 用管理员令牌管理这台服务：开通邮箱、签发/吊销密钥、配置新邮件通知。
 管理员令牌就是部署时设置的 MCP_TOKEN，与普通用户的 Key 分开存放。
@@ -200,14 +200,21 @@ const SUB_HELP = {
   cfmail admin webhook --clear`,
 };
 
+// Called by the entry point with the raw args, so `cfmail admin webhook --help`
+// gets the webhook help rather than this overview.
+export function help(argv = []) {
+  const sub = argv.find((a) => !a.startsWith("-"));
+  return (sub && SUB_HELP[sub]) || OVERVIEW;
+}
+
 export async function run(argv) {
   const name = argv[0];
-  if (!name || name === "--help" || name === "-h") return out(help);
+  if (!name || name === "--help" || name === "-h") return out(help(argv));
 
   const fn = SUB[name];
-  if (!fn) fail(`unknown admin command: ${name}\n\n${help}`);
+  if (!fn) fail(`unknown admin command: ${name}\n\n${OVERVIEW}`);
 
   const rest = argv.slice(1);
-  if (rest.includes("--help") || rest.includes("-h")) return out(SUB_HELP[name] ?? help);
+  if (rest.includes("--help") || rest.includes("-h")) return out(help(argv));
   await fn(rest);
 }
