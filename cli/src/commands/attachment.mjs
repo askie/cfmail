@@ -6,10 +6,19 @@ import { out, json, fail, isJson } from "../output.mjs";
 
 const SPEC = { "--out": "string" };
 
-export const help = `cfmail attachment <attachment-id> --out <path>
+export const help = `用法: cfmail attachment <附件id> --out <保存路径>
 
-Download one stored attachment. To attach it to an outgoing mail there is no
-need to download it first — use \`cfmail send --forward-attachment <id>\`.`;
+把一个已存附件下载到本地。
+
+参数:
+  <附件id>          必需。从 cfmail read <邮件id> 的输出里拿
+  --out <保存路径>  必需。存到哪，含文件名
+
+如果只是想把这个附件转发出去，不用先下载:
+  cfmail send --to someone@x.com --subject 转发 --text 见附件 --forward-attachment <附件id>
+
+示例:
+  cfmail attachment ed0ee1cf-ea48-4a49-9bfd-1001025d538d --out ./invoice.pdf`;
 
 export async function run(argv) {
   const { opts, positional } = parseArgs(argv, SPEC);

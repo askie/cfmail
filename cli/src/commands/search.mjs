@@ -5,9 +5,17 @@ import { out, json, fail, isJson, formatDate } from "../output.mjs";
 
 const SPEC = { "--limit": "number" };
 
-export const help = `cfmail search <text> [--limit N]
+export const help = `用法: cfmail search "<关键字>" [--limit N]
 
-Full-text search over subjects and bodies. Chinese works.`;
+在所有已存邮件的主题和正文里做全文搜索，中文可以搜。
+
+参数:
+  <关键字>     必需。含空格时用引号括起来
+  --limit N    最多返回几条，1-100，默认 20
+
+示例:
+  cfmail search 发票
+  cfmail search "verification code" --limit 5`;
 
 export async function run(argv) {
   const { opts, positional } = parseArgs(argv, SPEC);

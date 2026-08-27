@@ -9,9 +9,25 @@ const SPEC = {
   "--limit": "number", "--offset": "number",
 };
 
-export const help = `cfmail list [--from X] [--to X] [--subject X] [--since DATE] [--until DATE] [--limit N] [--offset N]
+export const help = `用法: cfmail list [筛选条件] [分页]
 
-List stored mail newest first, without touching the unread cursor.`;
+按条件列出已存邮件，最新的在前。不碰未读游标，随便查不影响 unread。
+
+筛选条件（可组合，都是「包含」匹配）:
+  --from <文本>      发件人包含该文本
+  --to <文本>        收件人包含该文本
+  --subject <文本>   主题包含该文本
+  --since <时间>     早于此时间的不要，ISO 格式如 2026-08-01
+  --until <时间>     晚于此时间的不要
+
+分页:
+  --limit N          每页几封，1-100，默认 20
+  --offset N         跳过前 N 封。输出末尾会提示下一页的 offset
+
+示例:
+  cfmail list --from acme.com --limit 50
+  cfmail list --subject 发票 --since 2026-08-01
+  cfmail list --limit 100 --offset 100     看第二页`;
 
 export async function run(argv) {
   const { opts } = parseArgs(argv, SPEC);

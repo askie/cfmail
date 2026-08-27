@@ -7,12 +7,24 @@ const SPEC = {
   "--peek": "bool", "--all": "bool", "--reset": "bool", "--limit": "number",
 };
 
-export const help = `cfmail unread [--peek] [--all] [--limit N] [--reset]
+export const help = `用法: cfmail unread [选项]
 
-List mail newer than the local cursor, then advance it.
-  --peek    show them without advancing the cursor
-  --all     ignore the cursor and show the most recent mail
-  --reset   mark everything as read without printing`;
+收取比上次更新的邮件，然后把游标推进到最新。
+
+服务端不记录已读/未读，本机用一个游标记住「看到哪儿了」，所以已读状态是每台
+机器各自独立的。
+
+参数:
+  --peek        只看，不推进游标（下次还会再列出来）
+  --all         忽略游标，直接看最近的邮件（也不推进游标）
+  --limit N     最多列几封，1-100，默认 20
+  --reset       把当前所有邮件标记为已读，不打印内容
+
+示例:
+  cfmail unread                 收新邮件并标记已读
+  cfmail unread --peek          先看看有什么，不标记
+  cfmail unread --all --limit 5 最近 5 封，不管读没读过
+  cfmail unread --reset         从现在开始只看新的`;
 
 export async function run(argv) {
   const { opts } = parseArgs(argv, SPEC);

@@ -9,23 +9,35 @@ const SPEC = {
   "--dir": "string", "--limit": "number", "--all": "bool", "--html": "bool", "--dry-run": "bool",
 };
 
-export const help = `cfmail sync [--dir <path>] [--all] [--limit N] [--html] [--dry-run]
+export const help = `用法: cfmail sync [--dir <目录>] [选项]
 
-Archive mail to a local folder, one directory per email under a date folder:
+把邮件（正文 + 附件）按天归档到本地目录。
 
-  <dir>/2026-08-27/0930-invoice-from-acme-a1b2c3/
-      meta.json          headers, ids, attachment list
-      body.txt           plain-text body
-      body.html          only with --html
-      attachments/…      the files, under their original names
+存出来的样子:
+  <目录>/2026-08-27/0930-发票-Q3-a1b2c3/
+      meta.json          发件人、收件人、主题、时间、附件清单
+      body.txt           纯文本正文
+      body.html          仅 --html 时
+      attachments/       附件，保留原始文件名
 
-Already-archived mail is skipped, so running this repeatedly is cheap and safe.
-The folder is remembered after the first --dir, and \`cfmail prune\` cleans it up.
+目录名带邮件 id 后缀，所以同一分钟的同主题邮件不会互相覆盖。已归档过的会跳过，
+反复跑很便宜，适合放进定时任务。邮箱再大也会自动翻页取全。
 
-  --all       re-check the whole mailbox, not just mail newer than the last sync
-  --limit N   how many emails to fetch per page (1-100, default 100)
-  --html      also write body.html
-  --dry-run   report what would be written without touching the disk`;
+参数:
+  --dir <目录>   归档到哪。第一次给了之后会记住，以后直接 cfmail sync 即可
+  --all         重新检查整个邮箱，而不只是上次同步之后的新邮件
+  --limit N     每页取几封，1-100，默认 100。只影响翻页粒度，不影响取全
+  --html        连 HTML 正文一起存
+  --dry-run     只报告会存什么，不动磁盘
+
+附件没取全的邮件不会被标记为已归档，下次跑会重新取。
+
+示例:
+  cfmail sync --dir ~/mail      第一次，指定目录
+  cfmail sync                   之后只同步新邮件
+  cfmail sync --all --html      全量重查，连 HTML 一起存
+
+清理旧归档见 cfmail prune --help`;
 
 // Marks a folder as one this tool owns. `prune` refuses to delete without it, so
 // pointing --dir at an unrelated path cannot wipe someone's files.
