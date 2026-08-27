@@ -105,6 +105,14 @@ export async function run(argv) {
   if (!dir) fail("no archive folder. Run once with --dir <path>; it is remembered afterwards.");
   const pageSize = Math.min(Math.max(opts.limit ?? PAGE_MAX, 1), PAGE_MAX);
 
+  // Written before any mail is fetched: an archive created by an older version,
+  // or one that gets no new mail this run, still ends up marked — otherwise
+  // `prune` would keep refusing to clean a folder that is genuinely ours.
+  if (!opts.dryRun) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, MARKER), "cfmail archive\n");
+  }
+
   const mcp = await new Mcp(cfg.base, cfg.key).connect();
   const since = opts.all ? 0 : stored.syncCursor ?? 0;
   const todo = await collect(mcp, since, pageSize);
@@ -132,7 +140,6 @@ export async function run(argv) {
     if (!mail || mail.error) continue;
 
     mkdirSync(folder, { recursive: true });
-    writeFileSync(join(dir, MARKER), "cfmail archive\n");
     writeFileSync(join(folder, "body.txt"), mail.text ?? "");
     if (opts.html && mail.html) writeFileSync(join(folder, "body.html"), mail.html);
 
@@ -143,7 +150,8 @@ export async function run(argv) {
       const got = await mcp.call("get_attachment", { attachment_id: a.id });
       if (!got || got.content_base64 == null) { missing = true; continue; }
 
-      // Two attachments may share a filename; keep both.
+      // Two attachments may share a filename; keep both. The prefix can push
+      // the name a few bytes past maxBytes, which is still far under any limit.
       let name = safeName(a.filename, a.id);
       if (seen.has(name)) name = `${String(a.id).slice(0, 6)}-${name}`;
       seen.add(name);

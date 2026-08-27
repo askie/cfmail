@@ -198,3 +198,10 @@ test("the archive root is marked so prune can recognise it", async () => {
   await runSync(["--dir", archive, "--all"], [{ ...EMAIL, attachments: [] }]);
   expect(existsSync(join(archive, ".cfmail-archive"))).toBe(true);
 });
+
+test("an archive with no new mail this run is still marked", async () => {
+  // The case that bit older archives: nothing to write, so the marker never
+  // appeared and prune refused to clean a folder that was genuinely ours.
+  await runSync(["--dir", archive, "--all"], []);
+  expect(existsSync(join(archive, ".cfmail-archive"))).toBe(true);
+});
