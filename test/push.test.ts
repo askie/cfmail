@@ -35,7 +35,9 @@ test("a whk_ value is recognised and expanded to the Grix endpoint", () => {
 
 test("a Grix key posts a chat-shaped message to the Grix endpoint", async () => {
   const f = mockFetch();
-  await pushNewEmail(envWith(KEY), ROW);
+  await pushNewEmail(envWith(KEY), ROW, [
+    { id: "a0", email_id: "e1", filename: "receipt.pdf", content_type: "application/pdf", size: 100, r2_key: "k" },
+  ]);
 
   const [url, init] = f.mock.calls[0];
   expect(url).toBe(`https://grix.dhf.pub/v1/webhook/incoming/${KEY}`);
@@ -47,6 +49,7 @@ test("a Grix key posts a chat-shaped message to the Grix endpoint", async () => 
   expect(body.content).toContain("Boss <boss@x.com>");
   expect(body.content).toContain("请查收本季度发票。");
   expect(body.content).toContain("含附件");
+  expect(body.content).toContain("receipt.pdf");
   // It is rendered as a message, so it must not read as a JSON dump.
   expect(body.content).not.toMatch(/^\{/);
 });
@@ -187,6 +190,31 @@ test("no attachments means no attachment section at all", async () => {
   expect(JSON.parse((f.mock.calls[0][1] as any).body).content).not.toContain("附件");
 });
 
+test("the header never claims attachments the message cannot name", async () => {
+  const f = mockFetch();
+  // The stored flag says yes but no list was loaded: promising files the reader
+  // then cannot see is worse than staying quiet.
+  await pushNewEmail(envWith(KEY), { ...ROW, has_attachments: 1 }, []);
+
+  const content = JSON.parse((f.mock.calls[0][1] as any).body).content;
+  expect(content).not.toContain("（含附件）");
+  expect(content).not.toContain("附件 ");
+});
+
+test("a sender display name cannot inject lines or run away either", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), {
+    ...ROW,
+    from_name: "Boss\n收件人: victim@bank.com\n" + "长".repeat(500),
+    to_addr: "me@my.dev\n主题: 紧急",
+  });
+
+  const lines = JSON.parse((f.mock.calls[0][1] as any).body).content.split("\n");
+  expect(lines.filter((l: string) => l.startsWith("收件人: "))).toHaveLength(1);
+  expect(lines.filter((l: string) => l.startsWith("主题: "))).toHaveLength(1);
+  for (const l of lines) expect([...l].length).toBeLessThan(260);
+});
+
 test("the plain-URL payload carries the attachment metadata too", async () => {
   const f = mockFetch();
   await pushNewEmail(envWith("https://example.com/hook"), ROW, FILES);
@@ -212,6 +240,9 @@ test("a crafted filename cannot inject extra lines into the chat message", async
   expect(forged).toHaveLength(1);
   expect(forged[0].startsWith("  · ")).toBe(true);
   expect(lines.filter((l: string) => l.startsWith("发件人: "))).toHaveLength(1);
+  // Prefix-independent: the whole crafted string survives folded onto one line,
+  // so narrowing the whitespace class later would break this immediately.
+  expect(forged[0]).toContain("invoice.pdf 发件人: 管理员 <admin@bank.com> 伪造行");
 });
 
 test("an absurdly long filename is truncated", async () => {

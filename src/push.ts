@@ -54,14 +54,15 @@ function grixBody(row: EmailRow, attachments: StoredAttachment[]) {
   const sender = row.from_name && row.from_addr
     ? `${row.from_name} <${row.from_addr}>`
     : row.from_name || row.from_addr || "(未知发件人)";
-  // Derive the header from the list actually being shown: a caller passing
-  // has_attachments=1 with no list would otherwise announce attachments that
-  // the message then fails to name.
-  const hasFiles = attachments.length > 0 || !!row.has_attachments;
+
+  // Say "has attachments" only when the message can actually name them: a header
+  // promising files the reader cannot see is worse than no header at all.
   const lines = [
-    `📬 新邮件${hasFiles ? "（含附件）" : ""}`,
-    `发件人: ${sender}`,
-    `收件人: ${row.to_addr || "(未知)"}`,
+    `📬 新邮件${attachments.length ? "（含附件）" : ""}`,
+    // Display name and recipient list are sender-controlled too, so they get the
+    // same folding and cap as the subject, body and filenames.
+    `发件人: ${snippet(sender, 200)}`,
+    `收件人: ${snippet(row.to_addr, 200) || "(未知)"}`,
     // Bulk senders sometimes use very long subjects; cap it like the body.
     `主题: ${snippet(row.subject, 120) || "(无主题)"}`,
   ];
