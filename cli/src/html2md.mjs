@@ -48,12 +48,23 @@ function safeHref(href) {
 }
 
 // `]` inside a label and `(` `)` inside a URL both break the link syntax, and a
-// crafted email could use that to forge markdown around its own content.
+// crafted email could use that to forge markdown around its own content —
+// including a clickable javascript: link, since the scheme check only sees the
+// href. `<a href="ok">a](javascript:evil) [b</a>` is the shape to keep out.
 function mdLabel(text) {
-  return text.replace(/([\\[\]])/g, "\\$1");
+  return reEscape(text.replace(/([\\[\]])/g, "\\$1"));
+}
+
+// Text pulled out of an attribute or an anchor is decoded here, but the whole
+// document is decoded again at the end. Without re-escaping the ampersands, a
+// doubly-encoded `&amp;lt;script&amp;gt;` would come back as a literal
+// `<script>` — after the tag-stripping pass has already run.
+function reEscape(text) {
+  return text.replace(/&/g, "&amp;");
 }
 
 function mdUrl(url) {
+  url = reEscape(url);
   // Percent-encode rather than wrap in <>: the angle-bracket form would be eaten
   // by the tag-stripping pass that runs after this one. These escapes are
   // ordinary URL syntax, so the link still resolves.
@@ -79,10 +90,10 @@ export function htmlToMarkdown(html, { maxLinkLength = 200 } = {}) {
     (whole, tag, inner) => {
       const href = safeHref(attr(tag, "href"));
       const label = decodeEntities(inner.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
-      if (!href) return label;
-      if (href.length > maxLinkLength) return label || href.slice(0, maxLinkLength);
+      if (!href) return mdLabel(label);
+      if (href.length > maxLinkLength) return mdLabel(label) || reEscape(href.slice(0, maxLinkLength));
       // A link whose text already is the URL reads better bare.
-      if (!label || label === href) return href;
+      if (!label || label === href) return reEscape(href);
       return `[${mdLabel(label)}](${mdUrl(href)})`;
     }
   );
@@ -90,7 +101,7 @@ export function htmlToMarkdown(html, { maxLinkLength = 200 } = {}) {
   // Images carry meaning only through their alt text.
   s = s.replace(/<img\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi, (whole, tag) => {
     const alt = attr(tag, "alt");
-    return alt ? `[图片: ${alt}]` : "";
+    return alt ? `[图片: ${mdLabel(alt)}]` : "";
   });
 
   s = s.replace(/<(h[1-6])\b[^>]*>([\s\S]*?)<\/\1>/gi, (whole, tag, inner) =>

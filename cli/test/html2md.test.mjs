@@ -81,6 +81,44 @@ test("unclosed and nested anchors degrade to plain text rather than debris", () 
     .toBe("[外内](https://o.com)");
 });
 
+test("a crafted label cannot forge a second, clickable link", () => {
+  // The scheme check only sees the href, so an unescaped `]` in the label would
+  // let the sender close the link early and open a javascript: one of their own.
+  const out = md('<a href="https://ok.com">a](javascript:evil) [b</a>');
+  // An escaped `\]` cannot close the link, so no second link is formed.
+  expect(out).not.toMatch(/(?<!\\)\]\(javascript:/);
+  expect(out).toBe("[a\\](javascript:evil) \\[b](https://ok.com)");
+});
+
+test("a crafted label cannot rewrite the link to another site", () => {
+  const out = md('<a href="https://ok.com">点击](https://evil.com) [x</a>');
+  expect(out).not.toMatch(/(?<!\\)\]\(https:\/\/evil\.com\)/);
+  // The real destination is the only one that survives as a link.
+  expect(out.endsWith("](https://ok.com)")).toBe(true);
+});
+
+test("an image alt is escaped the same way as a link label", () => {
+  const out = md('<img src="p.gif" alt="x](javascript:evil)">');
+  expect(out).not.toMatch(/(?<!\\)\]\(javascript:/);
+  expect(out).toBe("[图片: x\\](javascript:evil)]");
+});
+
+test("double-encoded markup does not come back as a literal tag", () => {
+  // Text is decoded once inside the anchor and once more for the whole document;
+  // without re-escaping, `&amp;lt;script&amp;gt;` would resurface as `<script>`
+  // after the tag-stripping pass had already run.
+  const out = md('<a href="https://x.com">&amp;lt;script&amp;gt;x&amp;lt;/script&amp;gt;</a>');
+  expect(out).not.toContain("<script>");
+  expect(out).toBe("[&lt;script&gt;x&lt;/script&gt;](https://x.com)");
+});
+
+test("ordinary ampersands still decode exactly once", () => {
+  expect(md("<p>Tom &amp; Jerry</p>")).toBe("Tom & Jerry");
+  expect(md('<a href="https://x.com/a?b=1&amp;c=2">正常</a>')).toBe("[正常](https://x.com/a?b=1&c=2)");
+  expect(md('<a href="https://x.com/?a=1&amp;b=2">https://x.com/?a=1&amp;b=2</a>'))
+    .toBe("https://x.com/?a=1&b=2");
+});
+
 test("no output ever retains a tag", () => {
   const nasty = [
     '<a href="https://x.com/a>b">x</a>',
@@ -88,6 +126,8 @@ test("no output ever retains a tag", () => {
     '<img src="x" alt="z>">',
     "<p onclick='alert(1)'>w</p>",
     "<unknown-tag>v</unknown-tag>",
+    '<a href="https://x.com">&amp;lt;script&amp;gt;</a>',
+    '<img alt="&amp;lt;img onerror=x&amp;gt;" src="p.gif">',
   ];
   for (const html of nasty) expect(md(html), html).not.toMatch(/<[a-z!/]/i);
 });
