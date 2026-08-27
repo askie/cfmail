@@ -15,10 +15,12 @@ import * as search from "../src/commands/search.mjs";
 import * as attachment from "../src/commands/attachment.mjs";
 import * as stats from "../src/commands/stats.mjs";
 import * as send from "../src/commands/send.mjs";
+import * as sync from "../src/commands/sync.mjs";
+import * as prune from "../src/commands/prune.mjs";
 import * as admin from "../src/commands/admin.mjs";
 
 const COMMANDS = {
-  setup, unread, list, read, search, attachment, stats, send, admin,
+  setup, unread, list, read, search, attachment, stats, send, sync, prune, admin,
   // Replying is sending with the id given positionally; one implementation.
   reply: { help: send.help, run: (argv) => send.run(argv, { replyPositional: true }) },
 };
@@ -32,6 +34,12 @@ const USAGE = `cfmail — 收发 cloudflare-email 邮箱的命令行工具
   cfmail search "关键字" [--limit N]                      全文搜索（支持中文）
   cfmail attachment <attachment-id> --out <path>         下载附件
   cfmail stats                                           邮箱统计
+
+归档到本地
+  cfmail sync --dir ~/mail                               把邮件按天存到本地（正文+附件）
+  cfmail sync                                            之后只同步新邮件
+  cfmail prune --older-than 90d                          预演清理旧归档
+  cfmail prune --older-than 90d --yes                    真正删除（只删本地，不动服务器）
 
 发信
   cfmail send --to a@x.com --subject "标题" --text "正文"  发一封
