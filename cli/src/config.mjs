@@ -12,7 +12,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, renameSy
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
-import { fail } from "./output.mjs";
+import { fail, warn } from "./output.mjs";
 
 const SCOPES = {
   user: { dir: "email-inbox", envPrefix: "EMAIL_INBOX" },
@@ -30,11 +30,39 @@ export function configPath(scope = "user") {
 function readFile(scope) {
   const path = configPath(scope);
   if (!existsSync(path)) return {};
+  warnIfOthersCanRead(path, scope);
   try {
     return JSON.parse(readFileSync(path, "utf8"));
   } catch (e) {
     fail(`config file is not valid JSON: ${path} (${e.message})`);
   }
+}
+
+// The credential sits in this file in plain text. writeFile creates it 0600, but
+// a file written before that rule existed — or copied in by hand — can be
+// readable by every account on the machine, and nothing would ever say so. Only
+// a warning: silently changing permissions on a read is not this command's job.
+const warnedPaths = new Set();
+
+function warnIfOthersCanRead(path, scope) {
+  // Windows does not carry these bits meaningfully; node reports 0666 there, so
+  // checking them would warn on every run and teach people to ignore it.
+  if (process.platform === "win32" || warnedPaths.has(path)) return;
+  warnedPaths.add(path);
+
+  let mode;
+  try {
+    mode = statSync(path).mode;
+  } catch {
+    return;   // gone between the check and here — the read will report it
+  }
+  if (!(mode & 0o077)) return;
+
+  const what = scope === "admin" ? "管理员令牌，全服务最高权限" : "这个邮箱的 API Key";
+  warn(
+    `${path} 同机器上的其他用户可读，里面是${what}。\n` +
+    `  收紧: chmod 600 ${path}`
+  );
 }
 
 // Write through a temporary file and rename into place. Two programs can be

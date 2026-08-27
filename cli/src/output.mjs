@@ -19,6 +19,12 @@ export function json(value) {
   process.stdout.write(JSON.stringify(value, null, 2) + "\n");
 }
 
+// Always stderr, never stdout — a warning must not land in the middle of what
+// a --json caller is parsing.
+export function warn(msg) {
+  process.stderr.write(`warning: ${msg}\n`);
+}
+
 // In --json mode errors are structured too, so a caller parsing stdout never
 // has to fall back to scraping stderr.
 export function fail(msg, extra) {
