@@ -41,6 +41,10 @@ function stubMcp(emails = [EMAIL], { attachmentFails = false } = {}) {
   return api;
 }
 
+// Mail is filed under the address it arrived at.
+const MAILBOX = "me@my.dev";
+const box = () => join(archive, MAILBOX);
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "cfmail-sync-"));
   archive = join(dir, "mail");
@@ -93,7 +97,7 @@ async function runSync(argv, emails, opts = {}) {
 test("writes one folder per email, under its own date", async () => {
   await runSync(["--dir", archive, "--all", "--html"]);
 
-  const day = join(archive, "2026-08-27");
+  const day = join(box(), "2026-08-27");
   const [folder] = readdirSync(day);
   expect(folder).toMatch(/^0930-/);
 
@@ -108,15 +112,15 @@ test("writes one folder per email, under its own date", async () => {
 
 test("path separators and other unsafe characters never reach the folder name", async () => {
   await runSync(["--dir", archive, "--all"]);
-  const [folder] = readdirSync(join(archive, "2026-08-27"));
+  const [folder] = readdirSync(join(box(), "2026-08-27"));
   // "发票 2026/08 — Q3" must not create a nested "08" directory.
   expect(folder).not.toContain("/");
-  expect(readdirSync(join(archive, "2026-08-27"))).toHaveLength(1);
+  expect(readdirSync(join(box(), "2026-08-27"))).toHaveLength(1);
 });
 
 test("body.html is only written when asked for", async () => {
   await runSync(["--dir", archive, "--all"]);
-  const p = join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0]);
+  const p = join(box(), "2026-08-27", readdirSync(join(box(), "2026-08-27"))[0]);
   expect(existsSync(join(p, "body.html"))).toBe(false);
 });
 
@@ -135,14 +139,14 @@ test("--dry-run writes nothing to disk", async () => {
 
 test("a subject-less email still gets a usable folder name", async () => {
   await runSync(["--dir", archive, "--all"], [{ ...EMAIL, subject: null, attachments: [] }]);
-  expect(readdirSync(join(archive, "2026-08-27"))[0]).toBe("0930-no-subject-e1");
+  expect(readdirSync(join(box(), "2026-08-27"))[0]).toBe("0930-no-subject-e1");
 });
 
 test("an attachment with no filename falls back to its id", async () => {
   await runSync(["--dir", archive, "--all"], [{
     ...EMAIL, attachments: [{ id: "att-9", filename: null, content_type: null, size: 5 }],
   }]);
-  const p = join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0]);
+  const p = join(box(), "2026-08-27", readdirSync(join(box(), "2026-08-27"))[0]);
   expect(readdirSync(join(p, "attachments"))).toEqual(["att-9"]);
 });
 
@@ -165,9 +169,9 @@ test("a mailbox larger than one page is archived in full", async () => {
 
   const stub = await runSync(["--dir", archive, "--all"], many);
 
-  const count = readdirSync(archive)
+  const count = readdirSync(box())
     .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
-    .reduce((n, d) => n + readdirSync(join(archive, d)).length, 0);
+    .reduce((n, d) => n + readdirSync(join(box(), d)).length, 0);
   expect(count).toBe(250);
   expect(stub.calls.list.map((c) => c.offset)).toEqual([0, 100, 200]);
 });
@@ -179,7 +183,7 @@ test("two emails in the same minute with the same subject both survive", async (
   ];
   await runSync(["--dir", archive, "--all"], twins);
 
-  const folders = readdirSync(join(archive, "2026-08-27"));
+  const folders = readdirSync(join(box(), "2026-08-27"));
   expect(folders).toHaveLength(2);
   expect(folders.some((f) => f.endsWith("-aaa111"))).toBe(true);
   expect(folders.some((f) => f.endsWith("-bbb222"))).toBe(true);
@@ -188,7 +192,7 @@ test("two emails in the same minute with the same subject both survive", async (
 test("an email whose attachments cannot be fetched is retried next run", async () => {
   await runSync(["--dir", archive, "--all"], [EMAIL], { attachmentFails: true });
 
-  const p = join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0]);
+  const p = join(box(), "2026-08-27", readdirSync(join(box(), "2026-08-27"))[0]);
   // No meta.json means "not fully archived", and the cursor must not move past it.
   expect(existsSync(join(p, "meta.json"))).toBe(false);
   expect(storedConfig().syncCursor).toBe(0);
@@ -204,7 +208,7 @@ test("attachments sharing a filename do not overwrite each other", async () => {
     ],
   }]);
 
-  const p = join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0]);
+  const p = join(box(), "2026-08-27", readdirSync(join(box(), "2026-08-27"))[0]);
   expect(readdirSync(join(p, "attachments"))).toHaveLength(2);
 });
 
@@ -214,7 +218,7 @@ test("an overlong attachment name is truncated but keeps its extension", async (
     attachments: [{ id: "att-1", filename: "报销单".repeat(60) + ".pdf", content_type: "application/pdf", size: 5 }],
   }]);
 
-  const p = join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0]);
+  const p = join(box(), "2026-08-27", readdirSync(join(box(), "2026-08-27"))[0]);
   const [name] = readdirSync(join(p, "attachments"));
   expect(name.endsWith(".pdf")).toBe(true);
   expect(new TextEncoder().encode(name).length).toBeLessThanOrEqual(100);
@@ -249,7 +253,7 @@ test("turning notifications on marks existing mail as seen instead of replaying 
 
   expect(stub.sent).toHaveLength(0);
   expect(printed.join("")).toMatch(/已把现有 1 封标记为「已通知」/);
-  expect(existsSync(join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0], ".notified"))).toBe(true);
+  expect(existsSync(join(box(), "2026-08-27", readdirSync(join(box(), "2026-08-27"))[0], ".notified"))).toBe(true);
   expect(storedConfig().notifyKey).toBe(KEY);
 });
 
@@ -275,8 +279,8 @@ test("a failed push leaves no marker, so the next run retries it", async () => {
   const later = { ...EMAIL, id: "e2", subject: "会失败的", date: EMAIL.date + 60_000, attachments: [] };
   await runSync(["--dir", archive, "--all"], [EMAIL, later], { notifyFails: true });
 
-  const folder = readdirSync(join(archive, "2026-08-27")).find((f) => f.includes("会失败的"));
-  expect(existsSync(join(archive, "2026-08-27", folder, ".notified"))).toBe(false);
+  const folder = readdirSync(join(box(), "2026-08-27")).find((f) => f.includes("会失败的"));
+  expect(existsSync(join(box(), "2026-08-27", folder, ".notified"))).toBe(false);
   expect(printed.join("")).toMatch(/推送失败.*下次 sync 会重试/s);
 
   // Retry: same mail, working transport.
@@ -284,7 +288,7 @@ test("a failed push leaves no marker, so the next run retries it", async () => {
   printed = [];
   const stub = await runSync(["--dir", archive, "--all"], [EMAIL, later]);
   expect(stub.sent).toHaveLength(1);
-  expect(existsSync(join(archive, "2026-08-27", folder, ".notified"))).toBe(true);
+  expect(existsSync(join(box(), "2026-08-27", folder, ".notified"))).toBe(true);
 });
 
 test("an email is never announced twice", async () => {
@@ -350,8 +354,8 @@ test("the marker records when the push happened, not the email's date", async ()
   const later = { ...EMAIL, id: "e2", subject: "时间戳", date: Date.parse("2020-01-01T00:00:00"), attachments: [] };
   await runSync(["--dir", archive, "--all"], [EMAIL, later]);
 
-  const folder = readdirSync(join(archive, "2020-01-01"))[0];
-  const stamp = readFileSync(join(archive, "2020-01-01", folder, ".notified"), "utf8").trim();
+  const folder = readdirSync(join(box(), "2020-01-01"))[0];
+  const stamp = readFileSync(join(box(), "2020-01-01", folder, ".notified"), "utf8").trim();
   // The email is from 2020; the push is now.
   expect(new Date(stamp).getFullYear()).toBe(new Date().getFullYear());
 });
@@ -373,7 +377,7 @@ const HTML_ONLY = {
 test("an HTML-only email gets a markdown body written next to the empty text one", async () => {
   await runSync(["--dir", archive, "--all"], [HTML_ONLY]);
 
-  const p = join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0]);
+  const p = join(box(), "2026-08-27", readdirSync(join(box(), "2026-08-27"))[0]);
   expect(readFileSync(join(p, "body.txt"), "utf8")).toBe("");
 
   const md = readFileSync(join(p, "body.md"), "utf8");
@@ -385,7 +389,7 @@ test("an HTML-only email gets a markdown body written next to the empty text one
 
 test("a message with a plain-text part gets no body.md", async () => {
   await runSync(["--dir", archive, "--all"], [{ ...EMAIL, attachments: [] }]);
-  const p = join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0]);
+  const p = join(box(), "2026-08-27", readdirSync(join(box(), "2026-08-27"))[0]);
 
   expect(existsSync(join(p, "body.md"))).toBe(false);
 });
@@ -405,7 +409,7 @@ test("the notification for an HTML-only email carries the converted text", async
 
 test("body.html is still only written with --html", async () => {
   await runSync(["--dir", archive, "--all"], [HTML_ONLY]);
-  const p = join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0]);
+  const p = join(box(), "2026-08-27", readdirSync(join(box(), "2026-08-27"))[0]);
 
   // The HTML is fetched regardless (body.md needs it), but not kept unless asked.
   expect(existsSync(join(p, "body.html"))).toBe(false);
@@ -416,7 +420,7 @@ test("body.html is still only written with --html", async () => {
 
 test("a second sync steps aside instead of racing the first", async () => {
   const { acquireLock } = await import("../src/lock.mjs");
-  const held = acquireLock(archive);   // stand in for a run already in progress
+  const held = acquireLock(box());   // stand in for a run already in progress
 
   const stub = await runSync(["--dir", archive, "--all"]);
 
@@ -428,7 +432,7 @@ test("a second sync steps aside instead of racing the first", async () => {
 
 test("stepping aside is not an error — a schedule should not raise alarms", async () => {
   const { acquireLock } = await import("../src/lock.mjs");
-  const held = acquireLock(archive);
+  const held = acquireLock(box());
 
   await runSync(["--dir", archive, "--all"], undefined, { json: true });
 
@@ -441,18 +445,18 @@ test("stepping aside is not an error — a schedule should not raise alarms", as
 test("the lock is released when the run finishes", async () => {
   const { LOCK } = await import("../src/lock.mjs");
   await runSync(["--dir", archive, "--all"]);
-  expect(existsSync(join(archive, LOCK))).toBe(false);
+  expect(existsSync(join(box(), LOCK))).toBe(false);
 });
 
 test("a dry run needs no lock and takes none", async () => {
   const { acquireLock, LOCK } = await import("../src/lock.mjs");
-  const held = acquireLock(archive);
+  const held = acquireLock(box());
 
   await runSync(["--dir", archive, "--all", "--dry-run"]);
   expect(printed.join("")).toMatch(/将归档/);   // it ran
 
   held.release();
-  expect(existsSync(join(archive, LOCK))).toBe(false);
+  expect(existsSync(join(box(), LOCK))).toBe(false);
 });
 
 test("the lock stays alive while a slow attachment downloads", async () => {
@@ -473,7 +477,72 @@ test("the lock stays alive while a slow attachment downloads", async () => {
 
   // The run completed and cleaned up, which it could not have done if another
   // caller had taken the lock away mid-download.
-  expect(existsSync(join(archive, LOCK))).toBe(false);
-  const folder = readdirSync(join(archive, "2026-08-27"))[0];
-  expect(readdirSync(join(archive, "2026-08-27", folder, "attachments"))).toHaveLength(2);
+  expect(existsSync(join(box(), LOCK))).toBe(false);
+  const folder = readdirSync(join(box(), "2026-08-27"))[0];
+  expect(readdirSync(join(box(), "2026-08-27", folder, "attachments"))).toHaveLength(2);
+});
+
+// --- Mail is filed per mailbox. ------------------------------------------------
+
+test("mail lands under the mailbox, not directly under the archive root", async () => {
+  await runSync(["--dir", archive, "--all"], [{ ...EMAIL, attachments: [] }]);
+
+  expect(existsSync(join(archive, MAILBOX, "2026-08-27"))).toBe(true);
+  expect(existsSync(join(archive, "2026-08-27"))).toBe(false);
+});
+
+test("two mailboxes sharing a root keep their own day folders", async () => {
+  await runSync(["--dir", archive, "--all"], [{ ...EMAIL, attachments: [] }]);
+
+  // A second mailbox, same root.
+  writeFileSync(process.env.EMAIL_INBOX_CONFIG, JSON.stringify({
+    current: "other@my.dev",
+    accounts: {
+      "me@my.dev": { base: "https://h", key: "k" },
+      "other@my.dev": { base: "https://h", key: "k2" },
+    },
+  }));
+  vi.resetModules();
+
+  await runSync(["--dir", archive, "--all"], [
+    { ...EMAIL, id: "o1", subject: "别人的信", attachments: [] },
+  ]);
+
+  expect(readdirSync(join(archive, "me@my.dev", "2026-08-27"))).toHaveLength(1);
+  const other = readdirSync(join(archive, "other@my.dev", "2026-08-27"));
+  expect(other).toHaveLength(1);
+  expect(other[0]).toContain("别人的信");
+});
+
+test("an archive from before per-mailbox filing is moved, not abandoned", async () => {
+  // Lay down the old shape: day folders directly under the root.
+  const old = join(archive, "2026-08-20", "0900-old-mail-zzz999");
+  mkdirSync(old, { recursive: true });
+  writeFileSync(join(old, "meta.json"), "{}");
+  writeFileSync(join(old, "body.txt"), "旧邮件");
+
+  await runSync(["--dir", archive, "--all"], [{ ...EMAIL, attachments: [] }]);
+
+  const moved = join(archive, MAILBOX, "2026-08-20", "0900-old-mail-zzz999");
+  expect(readFileSync(join(moved, "body.txt"), "utf8")).toBe("旧邮件");
+  expect(existsSync(join(archive, "2026-08-20"))).toBe(false);
+  expect(printed.join("")).toMatch(/已把 1 天的旧归档移到 me@my\.dev 名下/);
+});
+
+test("the archive marker stays at the root, where prune looks for it", async () => {
+  await runSync(["--dir", archive, "--all"], [{ ...EMAIL, attachments: [] }]);
+  expect(existsSync(join(archive, ".cfmail-archive"))).toBe(true);
+  expect(existsSync(join(archive, MAILBOX, ".cfmail-archive"))).toBe(false);
+});
+
+test("the lock is per mailbox, so two mailboxes can sync at once", async () => {
+  const { acquireLock } = await import("../src/lock.mjs");
+  // Another mailbox is mid-sync under the same root.
+  const held = acquireLock(join(archive, "other@my.dev"));
+
+  await runSync(["--dir", archive, "--all"], [{ ...EMAIL, attachments: [] }]);
+
+  // This one was not blocked by it.
+  expect(readdirSync(join(archive, MAILBOX, "2026-08-27"))).toHaveLength(1);
+  held.release();
 });

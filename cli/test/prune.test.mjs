@@ -7,10 +7,14 @@ import { setJsonMode } from "../src/output.mjs";
 
 let dir, archive, printed;
 
+const MAILBOX = "me@my.dev";
+// Where this mailbox's mail lives under the archive root.
+const box = () => join(archive, MAILBOX);
+
 // Build a day folder holding `count` archived emails.
 function day(name, count = 1) {
   for (let i = 0; i < count; i++) {
-    const f = join(archive, name, `09${i}0-mail-${i}`);
+    const f = join(box(), name, `09${i}0-mail-${i}`);
     mkdirSync(f, { recursive: true });
     writeFileSync(join(f, "meta.json"), "{}");
   }
@@ -25,9 +29,13 @@ function daysAgo(n) {
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "cfmail-prune-"));
   archive = join(dir, "mail");
-  mkdirSync(archive, { recursive: true });
+  mkdirSync(box(), { recursive: true });
   writeFileSync(join(archive, ".cfmail-archive"), "cfmail archive\n");
   process.env.EMAIL_INBOX_CONFIG = join(dir, "cfg.json");
+  writeFileSync(process.env.EMAIL_INBOX_CONFIG, JSON.stringify({
+    current: MAILBOX,
+    accounts: { [MAILBOX]: { base: "https://h", key: "k" } },
+  }));
   printed = [];
   vi.spyOn(process.stdout, "write").mockImplementation((s) => { printed.push(s); return true; });
   setJsonMode(false);
@@ -46,7 +54,7 @@ test("a plain run reports without deleting anything", async () => {
   day(daysAgo(100), 3);
   await run(["--dir", archive, "--older-than", "30d"]);
 
-  expect(existsSync(join(archive, daysAgo(100)))).toBe(true);
+  expect(existsSync(join(box(), daysAgo(100)))).toBe(true);
   expect(output()).toMatch(/将删除 1 天共 3 封/);
   expect(output()).toMatch(/这是预演/);
 });
@@ -56,40 +64,40 @@ test("--yes actually removes the aged-out day folders", async () => {
   day(daysAgo(1), 1);
   await run(["--dir", archive, "--older-than", "30d", "--yes"]);
 
-  expect(existsSync(join(archive, daysAgo(100)))).toBe(false);
-  expect(existsSync(join(archive, daysAgo(1)))).toBe(true);
+  expect(existsSync(join(box(), daysAgo(100)))).toBe(false);
+  expect(existsSync(join(box(), daysAgo(1)))).toBe(true);
 });
 
 test("--dry-run wins over --yes", async () => {
   day(daysAgo(100));
   await run(["--dir", archive, "--older-than", "30d", "--yes", "--dry-run"]);
-  expect(existsSync(join(archive, daysAgo(100)))).toBe(true);
+  expect(existsSync(join(box(), daysAgo(100)))).toBe(true);
 });
 
 test("a partially aged day is kept until the whole day is past the cutoff", async () => {
   // Exactly at the boundary: some of that day is still inside the window.
   day(daysAgo(30));
   await run(["--dir", archive, "--older-than", "30d", "--yes"]);
-  expect(existsSync(join(archive, daysAgo(30)))).toBe(true);
+  expect(existsSync(join(box(), daysAgo(30)))).toBe(true);
 });
 
 test("anything that is not a sync day folder is left alone", async () => {
-  mkdirSync(join(archive, "important-notes"), { recursive: true });
-  writeFileSync(join(archive, "README.md"), "keep me");
+  mkdirSync(join(box(), "important-notes"), { recursive: true });
+  writeFileSync(join(box(), "README.md"), "keep me");
   day(daysAgo(100));
 
   await run(["--dir", archive, "--older-than", "30d", "--yes"]);
 
-  expect(existsSync(join(archive, "important-notes"))).toBe(true);
-  expect(existsSync(join(archive, "README.md"))).toBe(true);
-  expect(readdirSync(archive).sort()).toEqual([".cfmail-archive", "README.md", "important-notes"]);
+  expect(existsSync(join(box(), "important-notes"))).toBe(true);
+  expect(existsSync(join(box(), "README.md"))).toBe(true);
+  expect(readdirSync(box()).sort()).toEqual(["README.md", "important-notes"]);
 });
 
 test("weeks, months and years are accepted as ages", async () => {
   for (const [age, ago] of [["2w", 20], ["6m", 200], ["1y", 400]]) {
     day(daysAgo(ago));
     await run(["--dir", archive, "--older-than", age, "--yes"]);
-    expect(existsSync(join(archive, daysAgo(ago)))).toBe(false);
+    expect(existsSync(join(box(), daysAgo(ago)))).toBe(false);
   }
 });
 
@@ -99,7 +107,7 @@ test("a malformed age is rejected before anything is touched", async () => {
   vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
   await expect(run(["--dir", archive, "--older-than", "30"])).rejects.toThrow("EXIT");
-  expect(existsSync(join(archive, daysAgo(100)))).toBe(true);
+  expect(existsSync(join(box(), daysAgo(100)))).toBe(true);
   exit.mockRestore();
 });
 
@@ -135,11 +143,11 @@ test("the marker file itself is never deleted", async () => {
 test("prune waits for a sync rather than deleting under it", async () => {
   const { acquireLock } = await import("../src/lock.mjs");
   day(daysAgo(100));
-  const held = acquireLock(archive);
+  const held = acquireLock(box());
 
   await run(["--dir", archive, "--older-than", "30d", "--yes"]);
 
-  expect(existsSync(join(archive, daysAgo(100)))).toBe(true);   // nothing removed
+  expect(existsSync(join(box(), daysAgo(100)))).toBe(true);   // nothing removed
   expect(output()).toMatch(/另一个 cfmail 正在用这个目录/);
   held.release();
 });
@@ -147,7 +155,7 @@ test("prune waits for a sync rather than deleting under it", async () => {
 test("a prune dry run reads happily while a sync holds the lock", async () => {
   const { acquireLock } = await import("../src/lock.mjs");
   day(daysAgo(100));
-  const held = acquireLock(archive);
+  const held = acquireLock(box());
 
   await run(["--dir", archive, "--older-than", "30d"]);
   expect(output()).toMatch(/将删除/);
