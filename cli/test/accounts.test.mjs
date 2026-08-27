@@ -198,3 +198,42 @@ test("the admin config is untouched by account selection", () => {
   expect(loadConfig("admin")).toEqual({ base: "https://svc", key: "MCP" });
   delete process.env.EMAIL_ADMIN_CONFIG;
 });
+
+// --- A hand-edited or half-written config file. --------------------------------
+
+test("a malformed accounts field is reported, not treated as empty", () => {
+  // Silently behaving as though nothing were configured would send someone
+  // hunting for a lost mailbox.
+  write({ accounts: "not an object" });
+  const msg = expectFail(() => listAccounts("user"));
+  expect(msg).toMatch(/config file is malformed/);
+  expect(msg).toMatch(/accounts/);
+});
+
+test("an accounts list is rejected the same way", () => {
+  write({ accounts: [] });
+  expect(expectFail(() => listAccounts("user"))).toMatch(/config file is malformed/);
+});
+
+test("converting an old file drops keys that belong to the file, not the mailbox", () => {
+  write({ accounts: null, base: "https://x", key: "k", cursor: 3 });
+  saveConfig({ cursor: 4 }, "user");
+
+  expect(read().accounts["(default)"]).toEqual({ base: "https://x", key: "k", cursor: 4 });
+});
+
+test("an old file with no address at all still converts", () => {
+  write({ base: "https://x", key: "k" });
+  expect(listAccounts("user").names).toEqual(["(default)"]);
+});
+
+test("a null account entry reads as empty rather than throwing", () => {
+  write({ current: "a@x.com", accounts: { "a@x.com": null } });
+  expect(listAccounts("user").names).toEqual(["a@x.com"]);
+  expect(loadConfig("user")).toMatchObject({ email: "a@x.com", base: "", key: "" });
+});
+
+test("a non-string current is ignored rather than used as a name", () => {
+  write({ current: 42, accounts: { "a@x.com": { base: "https://a", key: "k" } } });
+  expect(loadConfig("user").email).toBe("a@x.com");
+});

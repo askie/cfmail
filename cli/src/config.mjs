@@ -55,20 +55,35 @@ function writeFile(data, scope) {
 // A file written before multi-account support holds one mailbox at the top
 // level. Reading it as one account keeps every existing setup working, and the
 // next write persists the new shape.
-function normalize(raw) {
-  if (raw && typeof raw.accounts === "object" && raw.accounts) {
-    return { current: raw.current || "", accounts: { ...raw.accounts } };
+function normalize(raw, path) {
+  if (!raw || typeof raw !== "object") return { current: "", accounts: {} };
+
+  if ("accounts" in raw && raw.accounts !== null) {
+    // Present but not a map of mailboxes: report it rather than silently
+    // behaving as though nothing were configured.
+    if (typeof raw.accounts !== "object" || Array.isArray(raw.accounts)) {
+      fail(`config file is malformed: "accounts" should be an object of mailboxes\n  ${path}`);
+    }
+    const accounts = {};
+    for (const [name, value] of Object.entries(raw.accounts)) {
+      accounts[name] = value && typeof value === "object" ? value : {};
+    }
+    return { current: typeof raw.current === "string" ? raw.current : "", accounts };
   }
-  if (raw && (raw.base || raw.key)) {
-    const { email = "", ...rest } = raw;
+
+  if (raw.base || raw.key) {
+    // Drop the keys that belong to the file rather than to a mailbox, so the
+    // converted account carries only its own settings.
+    const { email = "", current, accounts, ...rest } = raw;
     const name = email || "(default)";
     return { current: name, accounts: { [name]: rest } };
   }
+
   return { current: "", accounts: {} };
 }
 
 export function accountsFile(scope = "user") {
-  return normalize(readFile(scope));
+  return normalize(readFile(scope), configPath(scope));
 }
 
 export function listAccounts(scope = "user") {
