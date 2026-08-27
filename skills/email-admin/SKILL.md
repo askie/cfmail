@@ -30,11 +30,11 @@ cfmail --version
 
 ```bash
 # 已经有仓库
-npm i -g /path/to/cloudflare-email/cli
+cd /path/to/cloudflare-email/cli && npm i -g $(npm pack | tail -1)
 
 # 没有仓库就先取一份
 git clone https://github.com/askie/cloudflare-email.git
-npm i -g ./cloudflare-email/cli
+cd cloudflare-email/cli && npm i -g $(npm pack | tail -1)
 ```
 
 ## 第一步：设置接入点（一次性）
