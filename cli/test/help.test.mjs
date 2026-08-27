@@ -174,3 +174,13 @@ test("the overview mentions it only to say there isn't one", () => {
     expect(line, line.trim()).toMatch(/\u6ca1\u6709\u300c\u5f53\u524d\u90ae\u7bb1\u300d/);
   }
 });
+
+test("the overview says where a new mailbox's key comes from", () => {
+  // "How do I add a mailbox" is answered by two commands owned by two roles;
+  // an overview listing only `setup` leaves the reader without a key.
+  const text = execFileSync("node", [BIN, "--help"], { encoding: "utf8" });
+  const config = text.slice(text.indexOf("\n\u914d\u7f6e\n"), text.indexOf("\n\u7ba1\u7406\uff08"));
+
+  expect(config).toContain("admin create-key");
+  expect(config).toContain("cfmail setup");
+});
