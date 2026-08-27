@@ -251,3 +251,37 @@ test("links this converter builds survive the body-wide escaping", () => {
   expect(out).toContain("[这里](https://x.com)");
   expect(out).toContain("[图片: 图]");
 });
+
+// --- The placeholder and the autolink form. -----------------------------------
+
+const NUL = String.fromCharCode(0);
+
+test("a body cannot forge a placeholder and clone another link", () => {
+  // The placeholder is built from NUL, so NUL is stripped from the input first.
+  // Otherwise a sender could replay any link the same message contains — say,
+  // moving a legitimate "unsubscribe" URL under text of their choosing.
+  const out = md(`<p>${NUL}L0${NUL}</p><a href="https://ok.com">真</a>`);
+
+  expect(out.match(/\[真\]\(https:\/\/ok\.com\)/g)).toHaveLength(1);
+  expect(out).not.toContain(NUL);
+});
+
+test("an out-of-range placeholder in the body is inert", () => {
+  expect(md(`<p>${NUL}L99${NUL}</p>`)).toBe("L99");
+});
+
+test("the autolink form cannot smuggle a scheme past the allowlist", () => {
+  // `<javascript:alert(1)>` is a markdown autolink, and the tag-stripping pass
+  // runs before entities are decoded — so `&lt;` arrives here as a live `<`.
+  const out = md("<p>&lt;javascript:alert(1)&gt;</p>");
+  expect(out).not.toMatch(/(?<!\\)<javascript:/);
+  expect(out).toBe("\\<javascript:alert(1)>");
+});
+
+test("markdown image syntax in the body cannot become a link either", () => {
+  expect(md("<p>![img](javascript:alert(1))</p>")).toBe("!\\[img\\](javascript:alert(1))");
+});
+
+test("a less-than in ordinary prose stays readable", () => {
+  expect(md("<p>价格 &lt; 100 元</p>")).toBe("价格 \\< 100 元");
+});

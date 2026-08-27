@@ -74,7 +74,10 @@ function mdUrl(url) {
 export function htmlToMarkdown(html, { maxLinkLength = 200 } = {}) {
   if (!html) return "";
 
-  let s = String(html);
+  // NUL is what the placeholder below is built from. Stripping it up front means
+  // a sender cannot write one into the body and have it restored as a copy of
+  // some other link in the same message.
+  let s = String(html).replace(/\u0000/g, "");
 
   // Links this converter builds are parked under a placeholder while the rest of
   // the document is processed, then restored at the very end. That keeps two
@@ -144,7 +147,10 @@ export function htmlToMarkdown(html, { maxLinkLength = 200 } = {}) {
   // typed straight into an email would sail past every check above — the scheme
   // allowlist only ever sees hrefs. Neutralising the brackets here makes every
   // link in the output one this converter built.
-  s = s.replace(/([\[\]])/g, "\\$1");
+  // `<` too: markdown reads `<javascript:alert(1)>` as an autolink, and the tag
+  // stripping above ran before the entities were decoded, so a `&lt;` in the
+  // source arrives here as a live `<`.
+  s = s.replace(/([\[\]<])/g, "\\$1");
   s = s.replace(/\u0000L(\d+)\u0000/g, (whole, i) => links[Number(i)] ?? "");
 
   return s
