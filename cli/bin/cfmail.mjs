@@ -54,6 +54,11 @@ const USAGE = `cfmail — 收发 cloudflare-email 邮箱的命令行工具
   cfmail setup --base <url> --email <地址> --key <key>    配置邮箱并当场验证
   cfmail config                                          看当前配的是哪个邮箱
 
+  新开一个邮箱地址要两步，分属两个角色：
+    1. 管理员  cfmail admin create-key <地址>    签发 Key（只显示这一次）
+    2. 使用者  cfmail setup --base ... --key ... 拿这把 Key 配到自己机器上
+  两步都是自己做的话，照着顺序跑一遍即可。
+
 管理（需要管理员令牌）
   cfmail admin setup --base <url> --key <admin-token>
   cfmail admin create-key <email>          给某个地址开通邮箱
