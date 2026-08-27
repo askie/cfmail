@@ -1,22 +1,23 @@
 # cfmail
 
-收发 [cloudflare-email](../README.md) 邮箱的命令行工具。只要 Node 20+，`npm i -g` 会自动装上依赖。
+收发 [cloudflare-email](../README.md) 邮箱的命令行工具。只要 Node 20+。
 
 ```bash
-cd cli && npm i -g $(npm pack | tail -1)   # 从本仓库安装
+npm install -g cfmail
 cfmail --help
 ```
 
-> **别用 `npm i -g ./cli`**：那样装的是一个指向源码目录的符号链接，仓库一移动
-> CLI 就坏了。更麻烦的是，如果仓库放在外置卷上，`launchd` / 计划任务这类受限
-> 环境访问不到那个路径，定时同步会以 `EPERM` 失败。先 `npm pack` 再装是真正的复制。
-
-在别的机器上：
+想跑仓库里最新未发布的代码，从源码装：
 
 ```bash
 git clone https://github.com/askie/cloudflare-email.git
 cd cloudflare-email/cli && npm i -g $(npm pack | tail -1)
 ```
+
+> 从源码装时别用 `npm i -g ./cli`：那样装的是一个指向源码目录的符号链接，仓库一
+> 移动 CLI 就坏了。更麻烦的是，如果仓库放在外置卷上，`launchd` / 计划任务这类
+> 受限环境访问不到那个路径，定时同步会以 `EPERM` 失败。先 `npm pack` 再装是真正
+> 的复制。
 
 ## 配置
 

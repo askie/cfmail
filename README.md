@@ -178,19 +178,19 @@ skills/
 技能靠这个工具干活，先装（需要 Node 20+）：
 
 ```bash
-cd cli && npm i -g $(npm pack | tail -1)
+npm install -g cfmail
 cfmail --help
 ```
 
-别人先 clone 再装（npm 不支持直接装 git 仓库的子目录）：
+想跑仓库里最新未发布的代码，从源码装：
 
 ```bash
 git clone https://github.com/askie/cloudflare-email.git
 cd cloudflare-email/cli && npm i -g $(npm pack | tail -1)
 ```
 
-> 先 `npm pack` 再装，而不是 `npm i -g ./cli`：后者装的是指向源码目录的符号链接，
-> 仓库一移动就坏；仓库若在外置卷上，定时任务那类受限环境还会访问不到而报 `EPERM`。
+> 从源码装时别用 `npm i -g ./cli`：那样装的是指向源码目录的符号链接，仓库一移动
+> 就坏，外置卷上的定时任务还会因访问不到而报 `EPERM`。先 `npm pack` 再装是真正的复制。
 
 装完之后 `cfmail` 在任何目录都能用。它把这个服务的全部能力做成了子命令——收信、搜索、发信、回信、附件、管理密钥，详见 [cli/README.md](./cli/README.md)。
 
