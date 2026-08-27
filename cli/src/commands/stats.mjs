@@ -2,9 +2,11 @@ import { Mcp } from "../mcp.mjs";
 import { requireConfig } from "../config.mjs";
 import { out, json, isJson, formatDate } from "../output.mjs";
 
-export const help = `cfmail stats
+export const help = `用法: cfmail stats
 
-How much mail this key can see, and when the newest arrived.`;
+打印这把 Key 能看到的邮箱概况：邮件总数、带附件的数量、最近一封的时间。
+
+没有参数。常用来确认配置是否生效、服务是否可达。`;
 
 export async function run() {
   const cfg = requireConfig("user");

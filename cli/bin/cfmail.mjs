@@ -22,7 +22,7 @@ import * as admin from "../src/commands/admin.mjs";
 const COMMANDS = {
   setup, unread, list, read, search, attachment, stats, send, sync, prune, admin,
   // Replying is sending with the id given positionally; one implementation.
-  reply: { help: send.help, run: (argv) => send.run(argv, { replyPositional: true }) },
+  reply: { help: send.replyHelp, run: (argv) => send.run(argv, { replyPositional: true }) },
 };
 
 const USAGE = `cfmail — 收发 cloudflare-email 邮箱的命令行工具
@@ -60,7 +60,12 @@ const USAGE = `cfmail — 收发 cloudflare-email 邮箱的命令行工具
 
 通用
   --json          机器可读输出（失败也是 JSON，且退出码非 0）
-  --help          任意命令后加它看详细用法
+  --version       看版本
+
+每个命令后面加 --help，都有完整的参数说明和示例：
+  cfmail send --help
+  cfmail prune --help
+  cfmail admin webhook --help
 
 环境变量可覆盖配置文件：EMAIL_INBOX_BASE / EMAIL_INBOX_EMAIL / EMAIL_INBOX_KEY /
 EMAIL_INBOX_CONFIG（管理端同理 EMAIL_ADMIN_*）。`;
@@ -81,7 +86,10 @@ async function main() {
     setJsonMode(true);
     rest = rest.filter((a) => a !== "--json");
   }
-  if (rest.includes("--help") || rest.includes("-h")) return out(cmd.help);
+  // `admin` dispatches further, so it handles --help itself and can answer for
+  // each of its subcommands.
+  const wantsHelp = rest.includes("--help") || rest.includes("-h");
+  if (wantsHelp && name !== "admin") return out(cmd.help);
 
   await cmd.run(rest);
 }
