@@ -56,11 +56,27 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-async function runSync(argv, emails, opts) {
+async function runSync(argv, emails, opts = {}) {
   const stub = stubMcp(emails ?? [EMAIL], opts);
   vi.doMock("../src/mcp.mjs", () => ({ Mcp: class { constructor() { return stub; } } }));
+
+  // Notifications go out over the network; capture them instead.
+  const sent = [];
+  vi.doMock("../src/notify.mjs", async () => {
+    const real = await vi.importActual("../src/notify.mjs");
+    return {
+      ...real,
+      sendToGrix: async (key, payload) => {
+        if (opts.notifyFails) throw new Error("HTTP 500");
+        sent.push({ key, payload });
+        return {};
+      },
+    };
+  });
+
   const { run } = await import("../src/commands/sync.mjs");
   await run(argv);
+  stub.sent = sent;
   return stub;
 }
 
@@ -204,4 +220,87 @@ test("an archive with no new mail this run is still marked", async () => {
   // appeared and prune refused to clean a folder that was genuinely ours.
   await runSync(["--dir", archive, "--all"], []);
   expect(existsSync(join(archive, ".cfmail-archive"))).toBe(true);
+});
+
+// --- Notifications. ------------------------------------------------------------
+
+const KEY = "whk_abc123";
+
+function storedConfig() {
+  return JSON.parse(readFileSync(process.env.EMAIL_INBOX_CONFIG, "utf8"));
+}
+
+test("turning notifications on marks existing mail as seen instead of replaying it", async () => {
+  // Announcing a whole mailbox into a chat the moment someone opts in would be
+  // unusable; only mail arriving afterwards should be pushed.
+  const stub = await runSync(["--dir", archive, "--all", "--notify", KEY]);
+
+  expect(stub.sent).toHaveLength(0);
+  expect(printed.join("")).toMatch(/已把现有 1 封标记为「已通知」/);
+  expect(existsSync(join(archive, "2026-08-27", readdirSync(join(archive, "2026-08-27"))[0], ".notified"))).toBe(true);
+  expect(storedConfig().notifyKey).toBe(KEY);
+});
+
+test("mail arriving after opt-in is pushed with its local links", async () => {
+  await runSync(["--dir", archive, "--all", "--notify", KEY]);   // opt in, nothing sent
+  vi.resetModules();
+  printed = [];
+
+  const later = { ...EMAIL, id: "e2", subject: "第二封", date: EMAIL.date + 60_000 };
+  const stub = await runSync(["--dir", archive, "--all"], [EMAIL, later]);
+
+  expect(stub.sent).toHaveLength(1);
+  expect(stub.sent[0].key).toBe(KEY);
+  expect(stub.sent[0].payload.content).toContain("第二封");
+  expect(stub.sent[0].payload.content).toContain("file:///");
+});
+
+test("a failed push leaves no marker, so the next run retries it", async () => {
+  await runSync(["--dir", archive, "--all", "--notify", KEY]);
+  vi.resetModules();
+  printed = [];
+
+  const later = { ...EMAIL, id: "e2", subject: "会失败的", date: EMAIL.date + 60_000, attachments: [] };
+  await runSync(["--dir", archive, "--all"], [EMAIL, later], { notifyFails: true });
+
+  const folder = readdirSync(join(archive, "2026-08-27")).find((f) => f.includes("会失败的"));
+  expect(existsSync(join(archive, "2026-08-27", folder, ".notified"))).toBe(false);
+  expect(printed.join("")).toMatch(/推送失败.*下次 sync 会重试/s);
+
+  // Retry: same mail, working transport.
+  vi.resetModules();
+  printed = [];
+  const stub = await runSync(["--dir", archive, "--all"], [EMAIL, later]);
+  expect(stub.sent).toHaveLength(1);
+  expect(existsSync(join(archive, "2026-08-27", folder, ".notified"))).toBe(true);
+});
+
+test("an email is never announced twice", async () => {
+  await runSync(["--dir", archive, "--all", "--notify", KEY]);
+  vi.resetModules();
+  const later = { ...EMAIL, id: "e2", subject: "只推一次", date: EMAIL.date + 60_000, attachments: [] };
+  await runSync(["--dir", archive, "--all"], [EMAIL, later]);
+
+  vi.resetModules();
+  const again = await runSync(["--dir", archive, "--all"], [EMAIL, later]);
+  expect(again.sent).toHaveLength(0);
+});
+
+test("--no-notify skips pushing for that run without losing the setting", async () => {
+  await runSync(["--dir", archive, "--all", "--notify", KEY]);
+  vi.resetModules();
+
+  const later = { ...EMAIL, id: "e2", subject: "静默这次", date: EMAIL.date + 60_000, attachments: [] };
+  const stub = await runSync(["--dir", archive, "--all", "--no-notify"], [EMAIL, later]);
+
+  expect(stub.sent).toHaveLength(0);
+  expect(storedConfig().notifyKey).toBe(KEY);   // still configured for next time
+});
+
+test("a --notify value that is not a Grix key is rejected", async () => {
+  const exit = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("EXIT"); });
+  vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+  await expect(runSync(["--dir", archive, "--notify", "https://example.com"])).rejects.toThrow("EXIT");
+  exit.mockRestore();
 });

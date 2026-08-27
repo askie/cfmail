@@ -1,5 +1,6 @@
-import { mkdirSync, writeFileSync, existsSync } from "node:fs";
-import { join, extname } from "node:path";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { join, extname, resolve } from "node:path";
+import { isGrixKey, buildMessage, sendToGrix } from "../notify.mjs";
 import { Mcp } from "../mcp.mjs";
 import { requireConfig, readStoredConfig, saveConfig } from "../config.mjs";
 import { parseArgs } from "../args.mjs";
@@ -7,6 +8,7 @@ import { out, json, fail, isJson, formatDate } from "../output.mjs";
 
 const SPEC = {
   "--dir": "string", "--limit": "number", "--all": "bool", "--html": "bool", "--dry-run": "bool",
+  "--notify": "string", "--no-notify": "bool",
 };
 
 export const help = `用法: cfmail sync [--dir <目录>] [选项]
@@ -29,8 +31,15 @@ export const help = `用法: cfmail sync [--dir <目录>] [选项]
   --limit N     每页取几封，1-100，默认 100。只影响翻页粒度，不影响取全
   --html        连 HTML 正文一起存
   --dry-run     只报告会存什么，不动磁盘
+  --notify <whk_key>
+                归档完把每封新邮件推到 Grix，消息里带附件的本地 file:// 链接，
+                点一下就能打开。第一次给了之后会记住
+  --no-notify   本次不推送
 
 附件没取全的邮件不会被标记为已归档，下次跑会重新取。
+
+推送过的邮件目录里会留一个 .notified 标记，所以同一封邮件只会被推送一次，
+反复跑 sync 不会重复打扰。
 
 示例:
   cfmail sync --dir ~/mail      第一次，指定目录
@@ -42,6 +51,11 @@ export const help = `用法: cfmail sync [--dir <目录>] [选项]
 // Marks a folder as one this tool owns. `prune` refuses to delete without it, so
 // pointing --dir at an unrelated path cannot wipe someone's files.
 export const MARKER = ".cfmail-archive";
+
+// Written into an email's folder once it has been announced. Using the folder
+// itself as the record means the archive stays the single source of truth —
+// no separate state file can drift out of step with what is on disk.
+export const NOTIFIED = ".notified";
 
 const PAGE_MAX = 100;   // the service caps list_emails at 100 rows
 
@@ -108,13 +122,65 @@ async function collect(mcp, since, pageSize) {
   return rows;
 }
 
+// One run should not flood a chat; the rest go out on the next sync.
+const NOTIFY_PER_RUN = 20;
+
+// Every archived email that has not been announced yet, oldest first so a chat
+// reads in the order mail arrived.
+function pendingNotifications(dir) {
+  const out = [];
+  for (const day of readdirSync(dir)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    const dayPath = join(dir, day);
+    if (!statSync(dayPath).isDirectory()) continue;
+
+    for (const name of readdirSync(dayPath)) {
+      const folder = join(dayPath, name);
+      if (!statSync(folder).isDirectory()) continue;
+      // No meta.json means the archive is incomplete; wait until it is whole.
+      if (!existsSync(join(folder, "meta.json"))) continue;
+      if (existsSync(join(folder, NOTIFIED))) continue;
+
+      let meta;
+      try {
+        meta = JSON.parse(readFileSync(join(folder, "meta.json"), "utf8"));
+      } catch {
+        continue;
+      }
+      const attDir = join(folder, "attachments");
+      const files = existsSync(attDir)
+        ? readdirSync(attDir).map((f) => ({
+            name: f,
+            path: join(attDir, f),
+            size: statSync(join(attDir, f)).size,
+          }))
+        : [];
+
+      const text = existsSync(join(folder, "body.txt"))
+        ? readFileSync(join(folder, "body.txt"), "utf8")
+        : "";
+      out.push({ rel: join(day, name), folder, files, meta: { ...meta, text } });
+    }
+  }
+  return out.sort((a, b) => (a.meta.date ?? 0) - (b.meta.date ?? 0));
+}
+
+function markNotified(item) {
+  writeFileSync(join(item.folder, NOTIFIED), new Date(item.meta.date || Date.now()).toISOString() + "\n");
+}
+
 export async function run(argv) {
   const { opts } = parseArgs(argv, SPEC);
   const cfg = requireConfig("user");
   const stored = readStoredConfig("user");
 
-  const dir = opts.dir || stored.syncDir;
+  const dir = opts.dir && resolve(opts.dir) || stored.syncDir;
   if (!dir) fail("no archive folder. Run once with --dir <path>; it is remembered afterwards.");
+
+  if (opts.notify && !isGrixKey(opts.notify)) {
+    fail("--notify expects a Grix key starting with whk_");
+  }
+  const notifyKey = opts.noNotify ? null : opts.notify || stored.notifyKey;
   const pageSize = Math.min(Math.max(opts.limit ?? PAGE_MAX, 1), PAGE_MAX);
 
   // Written before any mail is fetched: an archive created by an older version,
@@ -158,6 +224,7 @@ export async function run(argv) {
     let n = 0;
     let missing = false;
     const seen = new Set();
+    const savedFiles = [];
     for (const a of mail.attachments ?? []) {
       const got = await mcp.call("get_attachment", { attachment_id: a.id });
       if (!got || got.content_base64 == null) { missing = true; continue; }
@@ -170,7 +237,9 @@ export async function run(argv) {
 
       const attDir = join(folder, "attachments");
       mkdirSync(attDir, { recursive: true });
-      writeFileSync(join(attDir, name), Buffer.from(got.content_base64, "base64"));
+      const filePath = join(attDir, name);
+      writeFileSync(filePath, Buffer.from(got.content_base64, "base64"));
+      savedFiles.push({ name, path: filePath, size: a.size ?? 0 });
       n++;
     }
 
@@ -189,7 +258,7 @@ export async function run(argv) {
         attachments: mail.attachments ?? [],
       }, null, 2) + "\n"
     );
-    written.push({ rel, attachments: n });
+    written.push({ rel, folder, attachments: n, files: savedFiles, meta: mail });
   }
 
   if (!opts.dryRun) {
@@ -198,10 +267,44 @@ export async function run(argv) {
     saveConfig({ ...readStoredConfig("user"), syncDir: dir, syncCursor: cursor }, "user");
   }
 
+  // Announce after everything is on disk, so every link in a message points at a
+  // file that already exists. The candidates are every archived email still
+  // lacking a marker — not just this run's — so a send that failed last time is
+  // retried rather than lost.
+  const notified = [];
+  const notifyFailed = [];
+  let backfilled = 0;
+
+  if (notifyKey && !opts.dryRun) {
+    const pending = pendingNotifications(dir);
+
+    // Turning notifications on should not replay the whole mailbox into the
+    // chat. Mark what is already archived as seen; announce only what arrives
+    // from here on.
+    if (!stored.notifyKey) {
+      for (const item of pending) markNotified(item);
+      backfilled = pending.length;
+    } else {
+      for (const item of pending.slice(0, NOTIFY_PER_RUN)) {
+        try {
+          await sendToGrix(notifyKey, buildMessage(item));
+          // Marker written only after the POST succeeded.
+          markNotified(item);
+          notified.push(item.rel);
+        } catch (e) {
+          notifyFailed.push({ rel: item.rel, error: e?.message ?? String(e) });
+        }
+      }
+    }
+    // Merge onto what is on disk now: the cursor was already written above.
+    saveConfig({ ...readStoredConfig("user"), notifyKey }, "user");
+  }
+
   if (isJson()) {
     return json({
       ok: true, dir, written: written.length, skipped, incomplete,
-      dry_run: !!opts.dryRun, items: written,
+      notified: notified.length, backfilled, notify_failed: notifyFailed,
+      dry_run: !!opts.dryRun, items: written.map((w) => ({ rel: w.rel, attachments: w.attachments })),
     });
   }
   out(
@@ -214,5 +317,10 @@ export async function run(argv) {
     out(`  ${w.rel}${w.attachments ? `  📎${w.attachments}` : ""}`);
   }
   if (written.length > 10) out(`  …还有 ${written.length - 10} 封`);
+  if (backfilled) {
+    out(`\n已把现有 ${backfilled} 封标记为「已通知」，不会补推历史邮件。\n之后 sync 到的新邮件会自动推送到 Grix。`);
+  }
+  if (notified.length) out(`\n已推送 ${notified.length} 封到 Grix`);
+  for (const f of notifyFailed) out(`  推送失败: ${f.rel} — ${f.error}（下次 sync 会重试）`);
   if (!opts.dryRun && written.length) out(`\n最新归档到: ${formatDate(newest)}`);
 }
