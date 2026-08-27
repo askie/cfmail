@@ -19,18 +19,24 @@ export function webhookTarget(value: string): string {
 function snippet(text: string | null, len: number): string | null {
   if (!text) return null;
   const t = text.replace(/\s+/g, " ").trim();
-  return t.length > len ? t.slice(0, len) + "…" : t;
+  // Slice by code point: cutting a surrogate pair in half would emit a lone
+  // surrogate into the JSON payload.
+  const chars = [...t];
+  return chars.length > len ? chars.slice(0, len).join("") + "…" : t;
 }
 
 // Grix renders `content` as a chat message, so it has to read as one — a JSON
 // dump would show up verbatim in the conversation.
 function grixBody(row: EmailRow) {
-  const sender = row.from_name ? `${row.from_name} <${row.from_addr ?? ""}>` : row.from_addr || "(未知发件人)";
+  const sender = row.from_name && row.from_addr
+    ? `${row.from_name} <${row.from_addr}>`
+    : row.from_name || row.from_addr || "(未知发件人)";
   const lines = [
     `📬 新邮件${row.has_attachments ? "（含附件）" : ""}`,
     `发件人: ${sender}`,
     `收件人: ${row.to_addr || "(未知)"}`,
-    `主题: ${row.subject || "(无主题)"}`,
+    // Bulk senders sometimes use very long subjects; cap it like the body.
+    `主题: ${snippet(row.subject, 120) || "(无主题)"}`,
   ];
   const body = snippet(row.text_body, 500);
   if (body) lines.push("", body);
@@ -38,8 +44,10 @@ function grixBody(row: EmailRow) {
   return {
     content: lines.join("\n"),
     msg_type: "text",
-    // The stored email id: re-delivering the same mail cannot post twice.
-    client_msg_id: row.id,
+    // The RFC Message-ID, which stays the same when Email Routing redelivers a
+    // message. The storage id would not: every ingest mints a fresh UUID, so a
+    // redelivery would look like a new message to Grix and post twice.
+    client_msg_id: row.msg_id || row.id,
   };
 }
 

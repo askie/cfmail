@@ -90,9 +90,10 @@ async function deleteKey(argv) {
 
 function describeWebhook(res) {
   if (!res?.webhook) return "尚未配置新邮件通知。";
-  return res.kind === "grix"
-    ? `新邮件会作为聊天消息推送到 Grix\nKey: ${res.webhook}`
-    : `新邮件会 POST 到: ${res.webhook}`;
+  if (res.kind !== "grix") return `新邮件会 POST 到: ${res.webhook}`;
+  // The key is the entire credential — anyone holding it can post to that chat.
+  const masked = `${res.webhook.slice(0, 12)}…${res.webhook.slice(-4)}`;
+  return `新邮件会作为聊天消息推送到 Grix\nKey: ${masked}`;
 }
 
 async function webhook(argv) {

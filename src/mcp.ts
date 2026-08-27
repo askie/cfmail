@@ -20,6 +20,18 @@ function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
 }
 
+// One shape for both webhook tools, always with the same keys. `webhook_url` is
+// kept for callers written against the older field name.
+function describeWebhook(configured: string | null) {
+  if (!configured) return { webhook: null, webhook_url: null, kind: null, target: null };
+  return {
+    webhook: configured,
+    webhook_url: configured,
+    kind: isGrixKey(configured) ? "grix" : "url",
+    target: webhookTarget(configured),
+  };
+}
+
 function toMs(s?: string): number | undefined {
   if (!s) return undefined;
   const t = Date.parse(s);
@@ -161,12 +173,7 @@ export class EmailMCP extends McpAgent<Env> {
       async () => {
         if (!this.isAdmin) return json({ error: "Permission denied: admin only" });
         const configured = await getWebhook(this.env);
-        if (!configured) return json({ webhook: null });
-        return json({
-          webhook: configured,
-          kind: isGrixKey(configured) ? "grix" : "url",
-          target: webhookTarget(configured),
-        });
+        return json(describeWebhook(configured));
       }
     );
 
@@ -184,13 +191,7 @@ export class EmailMCP extends McpAgent<Env> {
           });
         }
         await setWebhook(this.env, trimmed || null);
-        if (!trimmed) return json({ ok: true, webhook: null });
-        return json({
-          ok: true,
-          webhook: trimmed,
-          kind: isGrixKey(trimmed) ? "grix" : "url",
-          target: webhookTarget(trimmed),
-        });
+        return json({ ok: true, ...describeWebhook(trimmed || null) });
       }
     );
 

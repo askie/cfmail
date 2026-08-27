@@ -41,7 +41,7 @@ test("a Grix key posts a chat-shaped message to the Grix endpoint", async () => 
 
   const body = JSON.parse((init as any).body);
   expect(body.msg_type).toBe("text");
-  expect(body.client_msg_id).toBe("e1");   // the email id: re-delivery cannot double-post
+  expect(body.client_msg_id).toBe("<a@x.com>");   // the Message-ID, stable across redelivery
   expect(body.content).toContain("发票 Q3");
   expect(body.content).toContain("Boss <boss@x.com>");
   expect(body.content).toContain("请查收本季度发票。");
@@ -94,4 +94,46 @@ test("a network error does not propagate either", async () => {
   await expect(pushNewEmail(envWith(KEY), ROW)).resolves.toBeUndefined();
   expect(err).toHaveBeenCalled();
   err.mockRestore();
+});
+
+test("the dedupe key survives redelivery, which mints a new storage id", async () => {
+  const f = mockFetch();
+  // Email Routing redelivering the same message ingests it again under a fresh
+  // UUID; only the Message-ID stays put, so that is what Grix must dedupe on.
+  await pushNewEmail(envWith(KEY), ROW);
+  await pushNewEmail(envWith(KEY), { ...ROW, id: "e2-different-uuid" });
+
+  const ids = f.mock.calls.map((c) => JSON.parse((c[1] as any).body).client_msg_id);
+  expect(ids[0]).toBe(ids[1]);
+});
+
+test("an email with no Message-ID falls back to the storage id", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), { ...ROW, msg_id: null });
+  expect(JSON.parse((f.mock.calls[0][1] as any).body).client_msg_id).toBe("e1");
+});
+
+test("an overlong subject is capped so content cannot run away", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), { ...ROW, subject: "催缴通知".repeat(200) });
+
+  const line = JSON.parse((f.mock.calls[0][1] as any).body).content
+    .split("\n").find((l: string) => l.startsWith("主题: "));
+  expect([...line].length).toBeLessThan(140);
+  expect(line.endsWith("…")).toBe(true);
+});
+
+test("a name without an address does not render empty angle brackets", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), { ...ROW, from_addr: null });
+  expect(JSON.parse((f.mock.calls[0][1] as any).body).content).toContain("发件人: Boss\n");
+});
+
+test("truncation never splits a surrogate pair", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), { ...ROW, text_body: "🎉".repeat(600) });
+
+  const content = JSON.parse((f.mock.calls[0][1] as any).body).content;
+  expect(content).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+  expect(content).toContain("…");
 });
