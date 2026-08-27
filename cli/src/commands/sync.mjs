@@ -44,7 +44,7 @@ export const help = `用法: cfmail sync [--dir <目录>] [选项]
 反复跑 sync 不会重复打扰。
 
 示例:
-  cfmail sync --dir ~/mail      第一次，指定目录
+  cfmail sync --dir ~/cfmail    第一次，指定目录
   cfmail sync                   之后只同步新邮件
   cfmail sync --all --html      全量重查，连 HTML 一起存
 

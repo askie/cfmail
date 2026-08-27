@@ -51,7 +51,7 @@ cfmail stats
 把邮件（正文 + 附件）按天存到本地目录，方便自己翻、备份、或者用别的工具处理：
 
 ```bash
-cfmail sync --dir ~/mail      # 第一次指定目录，之后会记住
+cfmail sync --dir ~/cfmail      # 第一次指定目录，之后会记住
 cfmail sync                   # 之后只同步新邮件
 cfmail sync --html            # 连 HTML 正文一起存
 cfmail sync --dry-run         # 只看会存什么，不落盘
@@ -60,7 +60,7 @@ cfmail sync --dry-run         # 只看会存什么，不落盘
 存出来长这样：
 
 ```
-~/mail/2026-08-27/0930-发票-Q3-a1b2c3/
+~/cfmail/2026-08-27/0930-发票-Q3-a1b2c3/
     meta.json          发件人、主题、时间、附件清单
     body.txt           纯文本正文
     body.html          仅 --html 时
@@ -100,7 +100,7 @@ cfmail prune --older-than 90d --yes    # 真正删除
 `cfmail sync` 归档完可以顺手把新邮件推到 Grix，消息里带**可点击的本地文件路径**：
 
 ```bash
-cfmail sync --dir ~/mail --notify whk_你的key    # 配一次，之后记住
+cfmail sync --dir ~/cfmail --notify whk_你的key    # 配一次，之后记住
 cfmail sync                                       # 以后每次都会推新邮件
 cfmail sync --no-notify                           # 这次不推
 ```
@@ -116,9 +116,9 @@ cfmail sync --no-notify                           # 这次不推
 对账单已生成，请查收。
 
 附件 1 个:
-- [对账单 8月.xlsx](file:///Users/you/mail/2026-08-27/0930-8月对账单-a1b2c3/attachments/对账单%208月.xlsx)  36 KB
+- [对账单 8月.xlsx](file:///Users/you/cfmail/2026-08-27/0930-8月对账单-a1b2c3/attachments/对账单%208月.xlsx)  36 KB
 
-📁 [打开邮件目录](file:///Users/you/mail/2026-08-27/0930-8月对账单-a1b2c3)
+📁 [打开邮件目录](file:///Users/you/cfmail/2026-08-27/0930-8月对账单-a1b2c3)
 ```
 
 点文件名直接打开附件，点目录打开整封邮件的归档文件夹。

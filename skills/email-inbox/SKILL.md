@@ -69,12 +69,12 @@ cfmail stats                       # 邮箱统计
 把邮件正文和附件按天存到本地目录：
 
 ```bash
-cfmail sync --dir ~/mail     # 第一次指定目录，之后记住
+cfmail sync --dir ~/cfmail     # 第一次指定目录，之后记住
 cfmail sync                  # 之后只同步新邮件
 cfmail sync --html           # 连 HTML 正文一起
 ```
 
-目录结构是 `~/mail/2026-08-27/0930-主题-邮件id/`，里面有 `meta.json`、`body.txt` 和 `attachments/`。已存过的会跳过，邮箱再大也会自动翻页取全。
+目录结构是 `~/cfmail/2026-08-27/0930-主题-邮件id/`，里面有 `meta.json`、`body.txt` 和 `attachments/`。已存过的会跳过，邮箱再大也会自动翻页取全。
 
 清理旧归档：
 
@@ -90,7 +90,7 @@ cfmail prune --older-than 90d --yes    # 真删
 归档时顺手把新邮件推到 Grix，消息里带可点击的本地文件路径：
 
 ```bash
-cfmail sync --dir ~/mail --notify whk_你的key   # 配一次，之后记住
+cfmail sync --dir ~/cfmail --notify whk_你的key   # 配一次，之后记住
 cfmail sync                                      # 以后每次自动推新邮件
 cfmail sync --no-notify                          # 这次不推
 ```
