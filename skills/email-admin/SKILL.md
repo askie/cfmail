@@ -35,8 +35,8 @@ npm install -g cfmail
 要跑仓库里最新未发布的代码才用源码安装：
 
 ```bash
-git clone https://github.com/askie/cloudflare-email.git
-cd cloudflare-email/cli && npm i -g $(npm pack | tail -1)
+git clone https://github.com/askie/cfmail.git
+cd cfmail/cli && npm i -g $(npm pack | tail -1)
 ```
 
 ## 第一步：设置接入点（一次性）

@@ -1,17 +1,17 @@
 {
   "name": "cfmail",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Command-line client for a cloudflare-email mailbox: read, search, send and administer mail.",
   "type": "module",
   "license": "MIT",
   "author": "askie",
-  "homepage": "https://github.com/askie/cloudflare-email/tree/main/cli#readme",
+  "homepage": "https://github.com/askie/cfmail/tree/main/cli#readme",
   "bugs": {
-    "url": "https://github.com/askie/cloudflare-email/issues"
+    "url": "https://github.com/askie/cfmail/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/askie/cloudflare-email.git",
+    "url": "git+https://github.com/askie/cfmail.git",
     "directory": "cli"
   },
   "keywords": [
