@@ -80,7 +80,9 @@ function buildService() {
     filter: "img",
     replacement: (content, node) => {
       const alt = (node.getAttribute("alt") || "").trim();
-      return alt ? `[图片: ${escapeMd(alt)}]` : "";
+      // Full-width brackets: an image inside a link would otherwise nest square
+      // brackets and break the link it sits in.
+      return alt ? `（图片：${escapeMd(alt)}）` : "";
     },
   });
 
@@ -93,6 +95,13 @@ function buildService() {
     filter: "tr",
     replacement: (content) => content.trim() + "\n",
   });
+
+  // turndown escapes markdown's own metacharacters in text nodes but leaves `<`
+  // alone, so entity-encoded markup (`&lt;script&gt;`) would arrive at the
+  // renderer live. Extending the escaper rather than post-processing keeps code
+  // spans and fences verbatim, which is where a literal `<` is meaningful.
+  const escapeText = td.escape.bind(td);
+  td.escape = (text) => escapeText(text).replace(/</g, "\\<");
 
   return td;
 }
@@ -110,14 +119,11 @@ export function htmlToMarkdown(html) {
     return "";
   }
 
-  // turndown passes inline HTML through, and text that was entity-encoded in the
-  // source arrives here as live markup. Neither should reach a renderer, so any
-  // `<` left in the output is escaped — the links built above contain none.
-  out = out.replace(/</g, "\\<");
-
   return out
-    .replace(/[ \t\u00a0\u3000]+/g, " ")
-    .replace(/ *\n */g, "\n")
+    // Collapse runs of spaces, but not the indentation that gives nested lists
+    // and fenced blocks their structure.
+    .replace(/[\u00a0\u3000]/g, " ")
+    .replace(/[ \t]+$/gm, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

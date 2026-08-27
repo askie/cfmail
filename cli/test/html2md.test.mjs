@@ -16,7 +16,7 @@ test("headings, emphasis and lists become their markdown equivalents", () => {
   expect(md("<h2>标题</h2>")).toBe("## 标题");
   expect(md("<p>code is <strong>123456</strong></p>")).toBe("code is **123456**");
   expect(md("<p>this is <em>urgent</em></p>")).toBe("this is *urgent*");
-  expect(md("<ul><li>一</li><li>二</li></ul>")).toBe("- 一\n- 二");
+  expect(md("<ul><li>一</li><li>二</li></ul>")).toBe("-   一\n-   二");
 });
 
 test("a link keeps its own text as the label", () => {
@@ -102,7 +102,7 @@ test("a crafted label cannot rewrite the link to another site", () => {
 test("an image alt is escaped the same way as a link label", () => {
   const out = md('<img src="p.gif" alt="x](javascript:evil)">');
   expect(out).not.toMatch(/(?<!\\)\]\(javascript:/);
-  expect(out).toBe("[图片: x\\](javascript:evil)]");
+  expect(out).toBe("（图片：x\\](javascript:evil)）");
 });
 
 test("double-encoded markup does not come back as a literal tag", () => {
@@ -164,8 +164,12 @@ test("an anchor with no href at all keeps only its text", () => {
 });
 
 test("images survive only as their alt text", () => {
-  expect(md('<img src="logo.png" alt="公司标志">')).toBe("[图片: 公司标志]");
+  // Full-width brackets, so an image inside a link cannot nest square brackets
+  // and break the link around it.
+  expect(md('<img src="logo.png" alt="公司标志">')).toBe("（图片：公司标志）");
   expect(md('<img src="pixel.gif">')).toBe("");
+  expect(md('<a href="https://x.com"><img src="y" alt="图标"></a>'))
+    .toBe("[（图片：图标）](https://x.com)");
 });
 
 test("entities are decoded, including numeric and hex forms", () => {
@@ -184,7 +188,7 @@ test("entities follow the HTML5 rules, including the unterminated ones", () => {
 
 test("table rows read as lines, cells separated within a row", () => {
   expect(md("<table><tr><td>项目</td><td>金额</td></tr><tr><td>发票</td><td>100</td></tr></table>"))
-    .toBe("项目 金额\n发票 100");
+    .toBe("项目  金额\n发票  100");
 });
 
 test("br and block boundaries become line breaks, not a wall of text", () => {
@@ -260,7 +264,7 @@ test("brackets in ordinary prose are escaped but still readable", () => {
 test("links this converter builds survive the body-wide escaping", () => {
   const out = md('<p>见 <a href="https://x.com">这里</a> 和 <img alt="图" src="p.gif"></p>');
   expect(out).toContain("[这里](https://x.com)");
-  expect(out).toContain("[图片: 图]");
+  expect(out).toContain("（图片：图）");
 });
 
 // --- The placeholder and the autolink form. -----------------------------------
@@ -295,4 +299,25 @@ test("markdown image syntax in the body cannot become a link either", () => {
 
 test("a less-than in ordinary prose stays readable", () => {
   expect(md("<p>价格 &lt; 100 元</p>")).toBe("价格 \\< 100 元");
+});
+
+// --- The post-processing must not damage what turndown built. -----------------
+
+test("code keeps its content verbatim, escaping and all", () => {
+  // Escaping `<` through turndown's text-node escaper rather than a blanket pass
+  // is what keeps these two intact.
+  expect(md("<pre><code>if (a &lt; b) return;</code></pre>")).toBe("```\nif (a < b) return;\n```");
+  expect(md("<p>用 <code>a &lt; b</code> 判断</p>")).toBe("用 `a < b` 判断");
+});
+
+test("markdown inside a code block is not treated as markdown", () => {
+  expect(md("<pre><code>[x](javascript:1)</code></pre>")).toBe("```\n[x](javascript:1)\n```");
+});
+
+test("nested lists keep the indentation that expresses their nesting", () => {
+  expect(md("<ul><li>一<ul><li>一甲</li></ul></li></ul>")).toBe("-   一\n    -   一甲");
+});
+
+test("a blockquote survives as one", () => {
+  expect(md("<blockquote><p>引用内容</p></blockquote>")).toBe("> 引用内容");
 });
