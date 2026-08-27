@@ -6,7 +6,7 @@ import { loadConfig, saveConfig, readStoredConfig, configPath } from "../src/con
 
 let dir;
 const ENV_KEYS = [
-  "EMAIL_INBOX_CONFIG", "EMAIL_INBOX_BASE", "EMAIL_INBOX_KEY", "EMAIL_INBOX_EMAIL",
+  "EMAIL_INBOX_CONFIG", "EMAIL_INBOX_BASE", "EMAIL_INBOX_KEY",
   "EMAIL_ADMIN_CONFIG", "EMAIL_ADMIN_BASE", "EMAIL_ADMIN_KEY", "XDG_CONFIG_HOME",
 ];
 
@@ -24,7 +24,6 @@ afterEach(() => {
 
 test("environment values win over the file", () => {
   writeFileSync(process.env.EMAIL_INBOX_CONFIG, JSON.stringify({ base: "https://file", key: "fk" }));
-  // (a pre-multi-account file, read as a single mailbox)
   process.env.EMAIL_INBOX_KEY = "envkey";
   const cfg = loadConfig("user");
 
@@ -64,7 +63,7 @@ test("saving tightens permissions on an existing loose file", () => {
 
   expect(statSync(process.env.EMAIL_INBOX_CONFIG).mode & 0o777).toBe(0o600);
   const file = JSON.parse(readFileSync(process.env.EMAIL_INBOX_CONFIG, "utf8"));
-  expect(file.accounts["me@x.com"].key).toBe("k");
+  expect(file.key).toBe("k");
 });
 
 test("XDG_CONFIG_HOME decides the default path", () => {

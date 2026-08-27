@@ -1,5 +1,5 @@
 import { Mcp } from "../mcp.mjs";
-import { requireConfig, listAccounts } from "../config.mjs";
+import { requireConfig } from "../config.mjs";
 import { parseArgs } from "../args.mjs";
 import { out, json, isJson, formatDate, mailboxTag } from "../output.mjs";
 
@@ -46,7 +46,7 @@ export async function run(argv) {
   const rows = res?.emails || res?.results || [];
 
   if (isJson()) return json({ ok: true, count: rows.length, emails: rows, next_offset: res?.next_offset });
-  const tag = mailboxTag(cfg.email, listAccounts("user").names.length);
+  const tag = mailboxTag(cfg.email);
   if (!rows.length) return out(`没有匹配的邮件。${tag}`);
   if (tag) out(`${tag.slice(1, -1)}\n`);
   for (const e of rows) {

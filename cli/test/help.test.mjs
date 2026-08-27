@@ -55,7 +55,7 @@ test("the flags read out of a SPEC are the real ones", () => {
 });
 
 test("every command's help opens with a usage line naming that command", () => {
-  for (const cmd of [...Object.keys(COMMANDS), "stats", "admin"]) {
+  for (const cmd of [...Object.keys(COMMANDS), "stats", "config", "admin"]) {
     const first = help(cmd).split("\n")[0];
     expect(first, `${cmd} has no usage line`).toMatch(/^用法: cfmail /);
     expect(first, `${cmd}'s usage line names another command`).toContain(cmd);
@@ -72,15 +72,30 @@ test("admin's subcommands each answer --help with their own usage line", () => {
 });
 
 test("no help text leaks an unresolved template placeholder", () => {
-  for (const cmd of [...Object.keys(COMMANDS), "stats", "admin"]) {
+  for (const cmd of [...Object.keys(COMMANDS), "stats", "config", "admin"]) {
     expect(help(cmd), cmd).not.toMatch(/\$\{/);
   }
 });
 
 test("help is plain text, not markdown — the terminal shows the markup verbatim", () => {
-  const all = [...Object.keys(COMMANDS), "stats", "admin"].map((c) => help(c)).join("\n") +
+  const all = [...Object.keys(COMMANDS), "stats", "config", "admin"].map((c) => help(c)).join("\n") +
     execFileSync("node", [BIN, "--help"], { encoding: "utf8" });
   expect(all).not.toMatch(/\*\*/);
+});
+
+test("every command the router accepts is listed in the overview", () => {
+  // Read the router's own table: a command added without a line in the help is
+  // a command nobody finds.
+  const src = readFileSync(BIN, "utf8");
+  const table = src.match(/const COMMANDS = \{[\s\S]*?\n\};/)[0];
+  const names = [...table.matchAll(/^\s{2}([a-z]+)[,:]/gm)].map((m) => m[1])
+    .concat(table.match(/^\s{2}([a-z, ]+),$/m)?.[1].split(",").map((x) => x.trim()) || []);
+  const text = execFileSync("node", [BIN, "--help"], { encoding: "utf8" });
+
+  expect(names.length).toBeGreaterThan(5);
+  for (const n of new Set(names.filter(Boolean))) {
+    expect(text, `overview never mentions "cfmail ${n}"`).toMatch(new RegExp(`cfmail ${n}\\b`));
+  }
 });
 
 test("the overview points at per-command help", () => {
@@ -102,20 +117,43 @@ test("a mistyped admin subcommand fails loudly even with --help", () => {
 
 // --- The overview has to answer the questions people actually arrive with. ----
 
-test("the overview documents the global options, --email included", () => {
-  // It was missing, and a reader with several mailboxes had no way to learn
-  // from the help that per-command selection existed at all.
+test("the overview documents the global options", () => {
   const text = execFileSync("node", [BIN, "--help"], { encoding: "utf8" });
-  for (const flag of ["--email", "--json", "--version", "--help"]) {
+  for (const flag of ["--json", "--version", "--help"]) {
     expect(text, `overview omits ${flag}`).toContain(flag);
   }
 });
 
 test("the overview explains how several programs share one machine", () => {
+  // A reader has to be able to learn from the help alone how to run a second
+  // mailbox without the two runs colliding.
   const text = execFileSync("node", [BIN, "--help"], { encoding: "utf8" });
 
-  expect(text).toMatch(/EMAIL_INBOX_EMAIL/);
   expect(text).toMatch(/EMAIL_INBOX_CONFIG/);
-  // And warns off the one mechanism that does not survive concurrent use.
-  expect(text).toMatch(/cfmail use/);
+  expect(text).toMatch(/一份配置/);
+});
+
+test("the overview no longer advertises the shared-state commands", () => {
+  // They are gone; a help that still names them sends people to a typo.
+  const text = execFileSync("node", [BIN, "--help"], { encoding: "utf8" });
+  expect(text).not.toMatch(/cfmail use\b/);
+  expect(text).not.toMatch(/cfmail accounts\b/);
+});
+
+test("a leftover --email says what replaced it instead of just rejecting it", () => {
+  // Scripts and skills written against the old CLI still pass it; "unknown
+  // option" would leave them with no idea what to do.
+  let code = 0, stderr = "";
+  try {
+    execFileSync("node", [BIN, "unread", "--email", "x@y.com"], { encoding: "utf8", stdio: "pipe" });
+  } catch (e) {
+    code = e.status;
+    stderr = e.stderr;
+  }
+  expect(code).toBe(1);
+  expect(stderr).toMatch(/EMAIL_INBOX_CONFIG/);
+});
+
+test("setup still takes --email: there it names the mailbox, not a selection", () => {
+  expect(help("setup")).toContain("--email");
 });

@@ -228,7 +228,7 @@ cfmail reply <邮件id> --text "回复内容"
 - 连接信息（含 Key）只存在**运行 Agent 的本机**：
   - 用户端：`~/.config/email-inbox/config.json`
   - 管理端：`~/.config/email-admin/config.json`（与用户端分开，管理员密钥不会和普通 Key 放一起）
-- 可用环境变量覆盖文件，便于多账号或脚本化：`EMAIL_INBOX_BASE` / `EMAIL_INBOX_EMAIL` / `EMAIL_INBOX_KEY` / `EMAIL_INBOX_CONFIG`（管理端同理 `EMAIL_ADMIN_*`）。
+- 可用环境变量覆盖文件：`EMAIL_INBOX_CONFIG` 换配置文件（一份配置 = 一个邮箱，这也是多邮箱和多程序并行的做法），`EMAIL_INBOX_BASE` / `EMAIL_INBOX_KEY` 覆盖凭据（管理端同理 `EMAIL_ADMIN_*`）。
 - 「未读」由本机游标记录（服务端不分已读/未读）：`cfmail unread --peek` 只看不标记、`--all` 看最近全部、`--reset` 全部标为已读。
 - 发信：`--attach ./file.pdf` 附上本地文件、`--forward-attachment <附件id>` 直接转发收到的附件（不用先下载）、`--text-file` 从文件读长正文。
 - 任何命令加 `--json` 得到机器可读输出，失败时也是 JSON 且退出码非 0。

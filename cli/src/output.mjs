@@ -32,11 +32,11 @@ export function fail(msg, extra) {
   process.exit(1);
 }
 
-// With more than one mailbox configured, every command should say which one it
-// acted on — that ambiguity is the reason multi-account support exists.
-export function mailboxTag(email, total) {
-  if (!email) return "";
-  return total > 1 ? `（${email}）` : "";
+// Which mailbox a command acted on. Worth printing every time: a program picks
+// its mailbox through EMAIL_INBOX_CONFIG, and this is how it confirms it got the
+// one it meant.
+export function mailboxTag(email) {
+  return email ? `（${email}）` : "";
 }
 
 export function formatDate(ms) {

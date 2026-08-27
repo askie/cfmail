@@ -32,80 +32,56 @@ cfmail setup --base https://mail.example.com --email you@example.com --key <你�
 cfmail admin setup --base https://mail.example.com --key <MCP_TOKEN>
 ```
 
-环境变量优先于配置文件：`EMAIL_INBOX_BASE` / `EMAIL_INBOX_EMAIL` / `EMAIL_INBOX_KEY` / `EMAIL_INBOX_CONFIG`（管理端同理 `EMAIL_ADMIN_*`），便于在脚本里切换邮箱。
+环境变量优先于配置文件：`EMAIL_INBOX_CONFIG` 换配置文件，`EMAIL_INBOX_BASE` / `EMAIL_INBOX_KEY` 覆盖凭据（管理端同理 `EMAIL_ADMIN_*`）。
 
 ## 一台机器多个邮箱
 
-对每个邮箱各跑一次 `setup` 就行，它们各有自己的密钥、未读游标、归档目录和通知设置，互不干扰。
+**一份配置文件 = 一个邮箱。** 没有「当前邮箱」这种全局设置，所以也不存在被别的程序改掉的问题。
+
+再收一个邮箱，就再开一份配置：
 
 ```bash
-cfmail setup --base https://mail.example.com --email me@example.com  --key <Key1>
+export EMAIL_INBOX_CONFIG=~/.config/email-inbox/work.json
 cfmail setup --base https://mail.example.com --email work@example.com --key <Key2>
 
-cfmail accounts            # 看本机配了哪些，▸ 标出当前那个
-cfmail use work@example.com # 切换当前邮箱
-cfmail forget old@example.com  # 删掉本机上这个邮箱的配置（不动服务端）
+cfmail unread        # 这个 shell 之后都走 work 这份
+cfmail config        # 不确定现在是哪个邮箱时看一眼
 ```
 
-不想切换、只想临时用一次别的邮箱：**任何命令都能带 `--email`**。
+密钥、未读游标、归档目录、推送设置全在各自的文件里，互相看不见。默认那份在
+`~/.config/email-inbox/config.json`，不设 `EMAIL_INBOX_CONFIG` 就用它。
 
-```bash
-cfmail unread --email work@example.com
-cfmail send --email work@example.com --to a@x.com --subject s --text b
-```
-
-配了多个之后，输出会标明当前是哪个邮箱：
+输出会标明这次读的是哪个邮箱：
 
 ```
 $ cfmail unread
 1 封未读邮件（work@example.com）：
 ```
 
-没选中而本机又有好几个时，命令会直接告诉你有哪些、怎么选：
+不想要某个邮箱了，删掉它那份配置文件即可（不影响服务端，也不吊销 Key）。
 
-```
-error: no mailbox selected, and this machine has several.
-configured: me@example.com, work@example.com
-Pick one with: cfmail use <address>   (or add --email <address> to this command)
-```
-
-> 选哪个邮箱的优先级：命令上的 `--email` → 环境变量 `EMAIL_INBOX_EMAIL` → 配置里记的当前邮箱。
-> 只配了一个时不用管这些，怎么写都是它。
+> 旧版本把多个邮箱塞在同一份配置里。只配过一个的会自动转成新格式，你不用做什么；
+> 配过多个的，cfmail 会列出它们并告诉你怎么拆成几份文件——不替你猜该用哪个。
 
 ## 多个程序同时用
 
-几个 agent 各跑各的 cfmail 是支持的，但**要各自指定邮箱**：
+给每个程序设一个 `EMAIL_INBOX_CONFIG` 就行：
 
 ```bash
-cfmail unread --email work@example.com            # 每条命令自己带
-EMAIL_INBOX_EMAIL=work@example.com cfmail unread  # 或整个进程固定一个
+# agent A
+EMAIL_INBOX_CONFIG=~/.config/email-inbox/a.json cfmail unread
+# agent B
+EMAIL_INBOX_CONFIG=~/.config/email-inbox/b.json cfmail unread
 ```
 
-**别依赖 `cfmail use`。**「当前邮箱」是写在配置文件里的共享状态，几个程序各自 `use`
-会互相覆盖，然后都以为自己在操作别的邮箱。`--email` 和环境变量都是本次调用/本进程
-独有的，不会串。
+两个程序要读**同一个**邮箱、又想各带各的未读游标，也是这么做：两份配置写同样的
+`--base/--email/--key`，游标各存各的。
 
-按隔离程度从轻到重：
-
-| 做法 | 隔离什么 |
-| --- | --- |
-| `--email <地址>` | 每条命令 |
-| `EMAIL_INBOX_EMAIL=<地址>` | 整个进程（多数场景推荐） |
-| `EMAIL_INBOX_CONFIG=<路径>` | 连未读游标也独立，完全两套设置 |
-
-第三种用于「两个程序要各自读同一个邮箱」——各带各的游标：
-
-```bash
-export EMAIL_INBOX_CONFIG=~/.config/cfmail-agent-a.json
-cfmail setup --base <地址> --email <邮箱> --key <Key>
-cfmail unread
-```
-
-并发下的保证：
+同一份配置被并发读写也是安全的：
 
 | 场景 | 行为 |
 | --- | --- |
-| 多个进程同时写配置（游标、归档目录…） | 每次更新都完整保留，不会互相覆盖 |
+| 多个进程同时写同一份配置（游标、归档目录…） | 每次更新都完整保留，不会互相覆盖 |
 | 一个进程读、另一个正在写 | 读到的要么是旧内容要么是新内容，不会是半个文件 |
 | 同一邮箱同时 `sync` | 后来的跳过这次并以 0 退出 |
 | 不同邮箱同时 `sync` | 各跑各的，互不阻塞 |
@@ -114,8 +90,8 @@ cfmail unread
 配置写入走「临时文件 + 原子重命名」，并用一把短锁把「读—改—写」包起来；
 崩溃留下的锁十秒后自动失效，不会卡住后续的运行。
 
-> 一个语义上的提醒：两个程序同时对**同一个邮箱**跑 `cfmail unread`，会各自拉到同一批
-> 未读邮件——游标是"看到哪儿了"，不是任务队列。要分工请让它们用不同邮箱。
+> 一个语义上的提醒：两份配置指向**同一个邮箱**时，各跑 `cfmail unread` 会各自拉到同一批
+> 未读邮件——游标是「看到哪儿了」，不是任务队列。要分工请让它们用不同邮箱。
 
 ## 收信
 
@@ -160,13 +136,13 @@ cfmail sync --dry-run         # 只看会存什么，不落盘
 > 这类邮件的 `body.txt` 是空的。服务会把 HTML 转成 Markdown 存进 `body.md`，
 > 标题、加粗、列表、链接都保留，推送到 Grix 的通知也用它——不会再出现"收到新邮件但正文一片空白"。
 
-**先按邮箱分，再按天分**——多个邮箱可以共用同一个 `--dir`，各归各的不会混在一起，一眼就能看出哪封信属于哪个邮箱。`prune` 也只清理当前邮箱的那份。
+**先按邮箱分，再按天分**——多个邮箱可以共用同一个 `--dir`，各归各的不会混在一起，一眼就能看出哪封信属于哪个邮箱。`prune` 也只清理这份配置对应邮箱的那份。
 
 邮件目录名是「时间 + 邮件标识的哈希」，**不含标题**。标题是发件人写的任意文本，拿它当文件名永远有边界情况（斜杠、emoji、超长、shell 元字符……）；完整标题在 `meta.json` 里，那里不需要任何转义。要找某封邮件用 `cfmail search`，不用翻目录名。
 
 哈希取自邮件自带的 `Message-ID`，所以**同一封邮件无论收几次都落在同一个目录**——这比按存储 id 命名更稳，后者每次入库都会变。
 
-> 早先版本把日期目录直接放在根下（那时还没有多邮箱）。第一次跑新版会自动把它们移到当前邮箱名下，内容原样保留，你不用做什么。
+> 早先版本把日期目录直接放在根下（那时还没按邮箱分层）。第一次跑新版会自动把它们移到邮箱名下，内容原样保留，你不用做什么。
 
 已经存过的会跳过，所以反复跑很便宜，适合放进定时任务。邮箱再大也会自动翻页取全，目录名带邮件 id 后缀，同一分钟的同主题邮件不会互相覆盖。
 

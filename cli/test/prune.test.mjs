@@ -33,8 +33,7 @@ beforeEach(() => {
   writeFileSync(join(archive, ".cfmail-archive"), "cfmail archive\n");
   process.env.EMAIL_INBOX_CONFIG = join(dir, "cfg.json");
   writeFileSync(process.env.EMAIL_INBOX_CONFIG, JSON.stringify({
-    current: MAILBOX,
-    accounts: { [MAILBOX]: { base: "https://h", key: "k" } },
+    email: MAILBOX, base: "https://h", key: "k",
   }));
   printed = [];
   vi.spyOn(process.stdout, "write").mockImplementation((s) => { printed.push(s); return true; });

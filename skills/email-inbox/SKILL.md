@@ -49,41 +49,33 @@ cfmail setup --base <服务地址> --email <你的邮箱> --key <你的API Key>
 
 ## 一台机器多个邮箱
 
-对每个邮箱各跑一次 `cfmail setup` 即可，它们各有自己的密钥、未读游标、归档目录和通知设置。
+**一份配置文件 = 一个邮箱。** 没有「当前邮箱」这种共享设置，所以不存在被别的 Agent 改掉的问题。
+
+再收一个邮箱就再开一份配置：
 
 ```bash
-cfmail accounts              # 看本机配了哪些，▸ 是当前那个
-cfmail use <邮箱>             # 切换当前邮箱
-cfmail unread --email <邮箱>  # 只这一次用别的邮箱，不改当前设置
+export EMAIL_INBOX_CONFIG=~/.config/email-inbox/work.json
+cfmail setup --base <服务地址> --email work@example.com --key <Key>
+cfmail unread                     # 这个进程之后都走 work 这份
 ```
+
+密钥、未读游标、归档目录、推送设置全在各自的文件里，互相看不见。不设这个变量就用默认那份 `~/.config/email-inbox/config.json`。
 
 ### 这台机器上有多个 Agent 时
 
-**别用 `cfmail use`**——「当前邮箱」是写在配置文件里的共享状态，几个 Agent 各自切换会互相覆盖，然后都以为自己在操作别的邮箱。
-
-按隔离程度从轻到重，选一种：
-
-| 做法 | 隔离什么 | 什么时候用 |
-| --- | --- | --- |
-| `cfmail unread --email <地址>` | 每条命令 | 偶尔用一次别的邮箱 |
-| `EMAIL_INBOX_EMAIL=<地址>` | 整个进程 | **多数 Agent 场景，推荐** |
-| `EMAIL_INBOX_CONFIG=<路径>` | 连未读游标也独立 | 两个 Agent 要各自读**同一个**邮箱 |
-
-前两种共用一份配置文件，不同邮箱的游标本来就是分开的，够用了。
-
-第三种是完全独立的一套设置：
+各设各的 `EMAIL_INBOX_CONFIG`，一次设好，之后所有命令自动走对邮箱：
 
 ```bash
-export EMAIL_INBOX_CONFIG=~/.config/cfmail-agent-a.json
-cfmail setup --base <地址> --email <邮箱> --key <Key>   # 这套配置里配一次
-cfmail unread                                          # 之后都用这套
+export EMAIL_INBOX_CONFIG=~/.config/email-inbox/agent-a.json
 ```
 
-配置文件本身可以并发读写，不会丢更新也不会读到写了一半的内容。
+不确定自己现在连的是哪个邮箱，跑 `cfmail config` 看一眼——它会打印邮箱、服务地址、归档目录和用的哪份配置文件，不打印 Key。
 
-> **注意 unread 的语义**：它是「我看到哪儿了」的游标，不是任务队列。两个 Agent 用同一份配置读同一个邮箱，会各自拉到同一批未读；要分工请让它们用不同邮箱，或者用第三种做法各带各的游标。
+同一份配置被并发读写是安全的，不会丢更新也不会读到写了一半的内容。
 
-配了多个之后，命令输出会标明当前是哪个邮箱。
+> **注意 unread 的语义**：它是「我看到哪儿了」的游标，不是任务队列。两个 Agent 读同一个邮箱会各自拉到同一批未读——即使用两份配置也一样，那只是让游标各走各的。要分工请让它们用不同邮箱。
+
+命令输出会标明这次读的是哪个邮箱。
 
 ## 收邮件
 
@@ -186,7 +178,7 @@ cfmail send --to a@x.com --subject s --text b --json
 4. 「回复这封」→ 用 `cfmail reply <邮件id>`，不要手工拼收件人和主题。要连附件一起转，先 `cfmail read` 拿附件 id，再加 `--forward-attachment`。
 5. 正文超过一两行、或含中文和换行时，先把正文写进临时文件再用 `--text-file`，比在命令行里塞长字符串可靠。
 6. **发信前先把收件人、主题、正文复述给用户确认**，尤其收件人不是用户自己时——邮件发出去收不回来。
-7. 用户提到某个具体邮箱（「看看工作邮箱有没有新邮件」）而本机配了多个时，用 `--email <地址>` 指定，别贸然 `cfmail use` 改掉他的当前设置。不确定有哪些就先跑 `cfmail accounts`。如果你是长期驻留的 Agent，在自己的环境里设好 `EMAIL_INBOX_EMAIL`，之后所有命令自动用对邮箱。
+7. 用户提到某个具体邮箱（「看看工作邮箱有没有新邮件」）时，先跑 `cfmail config` 确认当前这份配置是不是那个邮箱；不是就把 `EMAIL_INBOX_CONFIG` 指到那个邮箱的配置文件。如果你是长期驻留的 Agent，在自己的环境里设好 `EMAIL_INBOX_CONFIG`，之后所有命令自动用对邮箱。
 8. 用户说「把邮件存到本地 / 备份下来」→ `cfmail sync --dir <目录>`；说「新邮件通知我 / 推到聊天里」→ `cfmail sync --notify <whk_key>`；说「清理旧邮件」→ 先跑不带 `--yes` 的 `cfmail prune --older-than <期限>` 把清单给用户看，**确认后**再加 `--yes`。
 9. 需要程序化处理结果时加 `--json`，靠退出码判断成败。
 
