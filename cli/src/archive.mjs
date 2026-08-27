@@ -9,7 +9,8 @@
 // tool is used one mailbox at a time, so that is the level that has to come
 // first.
 
-import { readdirSync, existsSync, statSync, renameSync, mkdirSync, unlinkSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync, statSync, renameSync, mkdirSync, unlinkSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 // The root carries this; `prune` refuses to delete anywhere without it.
@@ -97,4 +98,60 @@ export function migrateFlatArchive(root, email) {
     }
   }
   return days.length;
+}
+
+// The name a mail folder should have: the time it arrived plus a hash of the
+// message's own identity. Kept here so sync and the rename pass below cannot
+// drift apart.
+export function mailFolderName(time, identity) {
+  const hash = createHash("sha256").update(String(identity)).digest("hex").slice(0, 10);
+  return `${time}-${hash}`;
+}
+
+// Earlier versions put the subject in the folder name. Renaming them keeps one
+// archive from carrying two naming schemes — the mail itself is untouched, and
+// meta.json has held the subject all along.
+export function renameSubjectFolders(dir) {
+  if (!existsSync(dir)) return 0;
+  let renamed = 0;
+
+  for (const day of readdirSync(dir)) {
+    if (!DAY.test(day)) continue;
+    const dayPath = join(dir, day);
+    let entries;
+    try {
+      if (!statSync(dayPath).isDirectory()) continue;
+      entries = readdirSync(dayPath);
+    } catch {
+      continue;
+    }
+
+    for (const name of entries) {
+      const folder = join(dayPath, name);
+      const meta = join(folder, "meta.json");
+      if (!existsSync(meta)) continue;
+
+      // `HHMM-<10 hex>` is already the current shape.
+      if (/^\d{4}-[0-9a-f]{10}$/.test(name)) continue;
+
+      let parsed;
+      try {
+        parsed = JSON.parse(readFileSync(meta, "utf8"));
+      } catch {
+        continue;
+      }
+
+      const time = name.slice(0, 4);
+      if (!/^\d{4}$/.test(time)) continue;
+
+      const target = join(dayPath, mailFolderName(time, parsed.msg_id || parsed.id || name));
+      if (target === folder || existsSync(target)) continue;
+
+      try {
+        renameSync(folder, target);
+        renamed++;
+      } catch { /* leave it under the old name rather than fail the sync */ }
+    }
+  }
+  return renamed;
 }

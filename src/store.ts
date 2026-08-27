@@ -138,6 +138,9 @@ export interface ListFilters {
 function summarize(r: any) {
   return {
     id: r.id,
+    // The message's own identity, stable across a redelivery. Callers that file
+    // mail on disk need it before deciding whether to fetch the whole message.
+    msg_id: r.msg_id,
     from: r.from_addr,
     from_name: r.from_name,
     to: r.to_addr,
@@ -200,7 +203,7 @@ export async function listEmails(env: Env, f: ListFilters, userEmail?: string) {
   const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
   const res = await env.DB.prepare(
-    `SELECT id, from_addr, from_name, to_addr, subject, date, has_attachments, text_body
+    `SELECT id, msg_id, from_addr, from_name, to_addr, subject, date, has_attachments, text_body
        FROM emails ${clause}
        ORDER BY date DESC
        LIMIT ? OFFSET ?`
@@ -218,7 +221,7 @@ export async function searchEmails(env: Env, query: string, limit = 20, userEmai
   const q = query.trim();
   if (q.length < 3) {
     // trigram needs >=3 chars; fall back to substring match.
-    let sql = `SELECT id, from_addr, from_name, to_addr, subject, date, has_attachments, text_body
+    let sql = `SELECT id, msg_id, from_addr, from_name, to_addr, subject, date, has_attachments, text_body
          FROM emails
          WHERE (subject LIKE ? OR text_body LIKE ?)`;
     const args: unknown[] = [`%${q}%`, `%${q}%`];
@@ -233,7 +236,7 @@ export async function searchEmails(env: Env, query: string, limit = 20, userEmai
     return { emails: (res.results ?? []).map(summarize) };
   }
 
-  let sql = `SELECT e.id, e.from_addr, e.from_name, e.to_addr, e.subject, e.date,
+  let sql = `SELECT e.id, e.msg_id, e.from_addr, e.from_name, e.to_addr, e.subject, e.date,
             e.has_attachments,
             snippet(emails_fts, 2, '[', ']', '…', 12) AS snip
        FROM emails_fts f

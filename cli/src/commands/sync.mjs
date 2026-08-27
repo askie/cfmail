@@ -3,7 +3,7 @@ import { join, extname, resolve } from "node:path";
 import { isGrixKey, buildMessage, sendToGrix } from "../notify.mjs";
 import { htmlToMarkdown } from "../html2md.mjs";
 import { acquireLock, lockHolder } from "../lock.mjs";
-import { MARKER, mailboxDir, migrateFlatArchive, isDayDir } from "../archive.mjs";
+import { MARKER, mailboxDir, migrateFlatArchive, isDayDir, mailFolderName, renameSubjectFolders } from "../archive.mjs";
 import { Mcp } from "../mcp.mjs";
 import { requireConfig, readStoredConfig, saveConfig } from "../config.mjs";
 import { parseArgs } from "../args.mjs";
@@ -19,7 +19,7 @@ export const help = `用法: cfmail sync [--dir <目录>] [选项]
 把邮件（正文 + 附件）按天归档到本地目录。
 
 存出来的样子:
-  <目录>/me@example.com/2026-08-27/0930-发票-Q3-a1b2c3/
+  <目录>/me@example.com/2026-08-27/0930-3f8a2c1b04/
       meta.json          发件人、收件人、主题、时间、附件清单
       body.txt           纯文本正文
       body.md            仅当邮件没有纯文本正文时：由 HTML 转成的 Markdown
@@ -27,8 +27,12 @@ export const help = `用法: cfmail sync [--dir <目录>] [选项]
       attachments/       附件，保留原始文件名
 
 先按邮箱分，再按天分。多个邮箱可以共用同一个 --dir，各归各的不会混在一起。
-目录名带邮件 id 后缀，所以同一分钟的同主题邮件不会互相覆盖。已归档过的会跳过，
-反复跑很便宜，适合放进定时任务。邮箱再大也会自动翻页取全。
+
+目录名是「时间 + 邮件标识的哈希」，不含标题——标题是发件人写的任意文本，
+做文件名永远有边界情况；完整标题在 meta.json 里。哈希取自邮件自带的
+Message-ID，同一封邮件无论收几次都是同一个目录。
+
+已归档过的会跳过，反复跑很便宜，适合放进定时任务。邮箱再大也会自动翻页取全。
 
 早先版本把日期目录直接放在根下（那时还没有多邮箱）。第一次跑新版会自动把它们
 移到当前邮箱名下，内容原样保留。
@@ -72,15 +76,10 @@ export const NOTIFIED = ".notified";
 
 const PAGE_MAX = 100;   // the service caps list_emails at 100 rows
 
-// Directory names end up in shells, editors and backups, so keep them boring:
-// no separators, no dot-segments, short enough to stay readable.
-function slug(text, max = 40) {
-  const s = (text || "")
-    .replace(/[\s　]+/g, "-")
-    .replace(/[/\\?%*:|"<>.\x00-\x1f]/g, "")
-    .replace(/^-+|-+$/g, "");
-  return [...s].slice(0, max).join("") || "no-subject";
-}
+// The folder name is an identifier, not a label. Subjects are attacker-supplied
+// free text — every character class, length and encoding a sender can think of —
+// and no amount of sanitising makes that a good filename. The subject lives in
+// meta.json, where it needs no escaping at all.
 
 // Attachment names come from the sender and are not length-limited. Left alone,
 // an overlong one throws ENAMETOOLONG mid-run and the same email blocks every
@@ -111,12 +110,13 @@ function dayAndTime(ms) {
   };
 }
 
-// Two emails can share a minute and a subject — mailing lists do it routinely.
-// The id suffix keeps their folders distinct and makes the folder name the
-// identity, so "already archived" is decided per email rather than per subject.
+// Named from the Message-ID rather than the storage id: the former is the
+// email's own identity and survives a redelivery, while the latter is a fresh
+// UUID on every ingest — so the same message keeps the same folder, and
+// "already archived" holds even when the service hands it to us twice.
 function folderFor(row) {
   const { day, time } = dayAndTime(row.date);
-  return join(day, `${time}-${slug(row.subject)}-${String(row.id).slice(0, 6)}`);
+  return join(day, mailFolderName(time, row.msg_id || row.id || `${row.date}-${row.subject}`));
 }
 
 // The service returns newest-first, so a page whose oldest row is already known
@@ -226,6 +226,7 @@ export async function run(argv) {
   // one root without their days running together.
   const dir = mailboxDir(root, cfg.email);
   const moved = opts.dryRun ? 0 : migrateFlatArchive(root, cfg.email);
+  const renamed = opts.dryRun ? 0 : renameSubjectFolders(mailboxDir(root, cfg.email));
 
   let lock = null;
   if (!opts.dryRun) {
@@ -241,13 +242,13 @@ export async function run(argv) {
   }
 
   try {
-    return await syncWithLock(opts, cfg, stored, root, dir, moved, notifyKey, pageSize, lock);
+    return await syncWithLock(opts, cfg, stored, root, dir, moved, renamed, notifyKey, pageSize, lock);
   } finally {
     lock?.release();
   }
 }
 
-async function syncWithLock(opts, cfg, stored, root, dir, moved, notifyKey, pageSize, lock) {
+async function syncWithLock(opts, cfg, stored, root, dir, moved, renamed, notifyKey, pageSize, lock) {
   // Written before any mail is fetched: an archive created by an older version,
   // or one that gets no new mail this run, still ends up marked — otherwise
   // `prune` would keep refusing to clean a folder that is genuinely ours.
@@ -383,13 +384,14 @@ async function syncWithLock(opts, cfg, stored, root, dir, moved, notifyKey, page
 
   if (isJson()) {
     return json({
-      ok: true, root, dir, mailbox: cfg.email, migrated: moved,
+      ok: true, root, dir, mailbox: cfg.email, migrated: moved, renamed,
       written: written.length, skipped, incomplete,
       notified: notified.length, backfilled, notify_failed: notifyFailed,
       dry_run: !!opts.dryRun, items: written.map((w) => ({ rel: w.rel, attachments: w.attachments })),
     });
   }
   if (moved) out(`已把 ${moved} 天的旧归档移到 ${cfg.email} 名下\n`);
+  if (renamed) out(`已把 ${renamed} 封邮件的目录名换成标识哈希（标题在 meta.json 里）\n`);
   out(
     `${opts.dryRun ? "将归档" : "已归档"} ${written.length} 封` +
     (skipped ? `，跳过 ${skipped} 封（已存在）` : "") +
