@@ -72,9 +72,15 @@ function normalize(raw, path) {
   }
 
   const names = Object.keys(raw.accounts);
+  // An empty accounts map carries no mailbox, so anything at the top level is
+  // the real setting rather than a leftover.
+  if (!names.length) {
+    const { accounts, current, ...flat } = raw;
+    return flat;
+  }
+
   const name = names.includes(raw.current) ? raw.current : (names.length === 1 ? names[0] : "");
   if (!name) {
-    if (!names.length) return {};
     fail(
       `this config holds ${names.length} mailboxes, and cfmail now uses one file per mailbox.\n` +
       `  ${path}\n` +

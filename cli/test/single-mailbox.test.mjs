@@ -135,6 +135,11 @@ test("a null account entry reads as empty rather than throwing", () => {
   expect(loadConfig("user")).toMatchObject({ email: "a@x.com", base: "", key: "" });
 });
 
+test("an empty accounts map does not hide settings stored beside it", () => {
+  write({ accounts: {}, base: "https://x", email: "me@x.com", key: "k" });
+  expect(loadConfig("user")).toMatchObject({ base: "https://x", email: "me@x.com", key: "k" });
+});
+
 test("an accounts field that is not a map of mailboxes is ignored, not obeyed", () => {
   write({ accounts: "not an object", base: "https://x", key: "k" });
   expect(loadConfig("user")).toMatchObject({ base: "https://x", key: "k" });
