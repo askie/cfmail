@@ -139,3 +139,21 @@ test("the overview no longer advertises the shared-state commands", () => {
   expect(text).not.toMatch(/cfmail use\b/);
   expect(text).not.toMatch(/cfmail accounts\b/);
 });
+
+test("a leftover --email says what replaced it instead of just rejecting it", () => {
+  // Scripts and skills written against the old CLI still pass it; "unknown
+  // option" would leave them with no idea what to do.
+  let code = 0, stderr = "";
+  try {
+    execFileSync("node", [BIN, "unread", "--email", "x@y.com"], { encoding: "utf8", stdio: "pipe" });
+  } catch (e) {
+    code = e.status;
+    stderr = e.stderr;
+  }
+  expect(code).toBe(1);
+  expect(stderr).toMatch(/EMAIL_INBOX_CONFIG/);
+});
+
+test("setup still takes --email: there it names the mailbox, not a selection", () => {
+  expect(help("setup")).toContain("--email");
+});

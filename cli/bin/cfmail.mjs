@@ -105,6 +105,17 @@ async function main() {
     rest = rest.filter((a) => a !== "--json");
   }
 
+  // --email used to be a global that picked a mailbox. A config file is now one
+  // mailbox, so the flag is gone — but scripts and skills written against the
+  // old CLI still pass it, and "unknown option" would not tell them what to do.
+  if (rest.includes("--email") && name !== "setup") {
+    fail(
+      "--email is no longer a global option: one config file is one mailbox.\n" +
+      "Point EMAIL_INBOX_CONFIG at that mailbox's config instead:\n" +
+      "  EMAIL_INBOX_CONFIG=~/.config/email-inbox/<name>.json cfmail " + name
+    );
+  }
+
   // A command that dispatches further exports `help` as a function, so it can
   // answer for whichever subcommand was asked about. Returning nothing means it
   // did not recognise the subcommand — fall through to run(), which reports the
