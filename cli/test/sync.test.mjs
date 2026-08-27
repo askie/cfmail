@@ -138,8 +138,34 @@ test("--dry-run writes nothing to disk", async () => {
 });
 
 test("a subject-less email still gets a usable folder name", async () => {
+  // Nothing about the folder name depends on the subject any more.
   await runSync(["--dir", archive, "--all"], [{ ...EMAIL, subject: null, attachments: [] }]);
-  expect(readdirSync(join(box(), "2026-08-27"))[0]).toBe("0930-no-subject-e1");
+  expect(readdirSync(join(box(), "2026-08-27"))[0]).toMatch(/^0930-[0-9a-f]{10}$/);
+});
+
+test("the folder name carries no trace of the subject", async () => {
+  // A subject is attacker-supplied free text; keeping it out of the filename
+  // removes a whole class of edge cases at once.
+  await runSync(["--dir", archive, "--all"], [{
+    ...EMAIL, subject: "报表 2026/08 🎉 <script> ..", attachments: [],
+  }]);
+
+  const name = readdirSync(join(box(), "2026-08-27"))[0];
+  expect(name).toMatch(/^0930-[0-9a-f]{10}$/);
+  expect(name).not.toMatch(/报表|script|🎉/);
+});
+
+test("the same message keeps its folder even if the storage id changes", async () => {
+  // A redelivery mints a fresh storage id; the Message-ID is what stays put.
+  await runSync(["--dir", archive, "--all"], [{ ...EMAIL, attachments: [] }]);
+  const first = readdirSync(join(box(), "2026-08-27"));
+
+  vi.resetModules();
+  await runSync(["--dir", archive, "--all"], [
+    { ...EMAIL, id: "a-different-uuid", attachments: [] },
+  ]);
+
+  expect(readdirSync(join(box(), "2026-08-27"))).toEqual(first);
 });
 
 test("an attachment with no filename falls back to its id", async () => {
@@ -178,15 +204,14 @@ test("a mailbox larger than one page is archived in full", async () => {
 
 test("two emails in the same minute with the same subject both survive", async () => {
   const twins = [
-    { ...EMAIL, id: "aaa111", attachments: [] },
-    { ...EMAIL, id: "bbb222", attachments: [] },   // same date, same subject
+    { ...EMAIL, id: "aaa111", msg_id: "<one@x.com>", attachments: [] },
+    { ...EMAIL, id: "bbb222", msg_id: "<two@x.com>", attachments: [] },  // same date and subject
   ];
   await runSync(["--dir", archive, "--all"], twins);
 
   const folders = readdirSync(join(box(), "2026-08-27"));
   expect(folders).toHaveLength(2);
-  expect(folders.some((f) => f.endsWith("-aaa111"))).toBe(true);
-  expect(folders.some((f) => f.endsWith("-bbb222"))).toBe(true);
+  expect(new Set(folders).size).toBe(2);
 });
 
 test("an email whose attachments cannot be fetched is retried next run", async () => {
@@ -279,7 +304,8 @@ test("a failed push leaves no marker, so the next run retries it", async () => {
   const later = { ...EMAIL, id: "e2", subject: "会失败的", date: EMAIL.date + 60_000, attachments: [] };
   await runSync(["--dir", archive, "--all"], [EMAIL, later], { notifyFails: true });
 
-  const folder = readdirSync(join(box(), "2026-08-27")).find((f) => f.includes("会失败的"));
+  const folder = readdirSync(join(box(), "2026-08-27"))
+    .find((f) => !existsSync(join(box(), "2026-08-27", f, ".notified")));
   expect(existsSync(join(box(), "2026-08-27", folder, ".notified"))).toBe(false);
   expect(printed.join("")).toMatch(/推送失败.*下次 sync 会重试/s);
 
@@ -511,22 +537,26 @@ test("two mailboxes sharing a root keep their own day folders", async () => {
   expect(readdirSync(join(archive, "me@my.dev", "2026-08-27"))).toHaveLength(1);
   const other = readdirSync(join(archive, "other@my.dev", "2026-08-27"));
   expect(other).toHaveLength(1);
-  expect(other[0]).toContain("别人的信");
+  expect(other[0]).toMatch(/^0930-[0-9a-f]{10}$/);
 });
 
 test("an archive from before per-mailbox filing is moved, not abandoned", async () => {
   // Lay down the old shape: day folders directly under the root.
   const old = join(archive, "2026-08-20", "0900-old-mail-zzz999");
   mkdirSync(old, { recursive: true });
-  writeFileSync(join(old, "meta.json"), "{}");
+  writeFileSync(join(old, "meta.json"), JSON.stringify({ id: "zzz999", msg_id: "<old@x.com>" }));
   writeFileSync(join(old, "body.txt"), "旧邮件");
 
   await runSync(["--dir", archive, "--all"], [{ ...EMAIL, attachments: [] }]);
 
-  const moved = join(archive, MAILBOX, "2026-08-20", "0900-old-mail-zzz999");
-  expect(readFileSync(join(moved, "body.txt"), "utf8")).toBe("旧邮件");
+  // Moved under the mailbox and renamed to the identifier form in one pass.
+  const day = join(archive, MAILBOX, "2026-08-20");
+  const [moved] = readdirSync(day);
+  expect(moved).toMatch(/^0900-[0-9a-f]{10}$/);
+  expect(readFileSync(join(day, moved, "body.txt"), "utf8")).toBe("旧邮件");
   expect(existsSync(join(archive, "2026-08-20"))).toBe(false);
   expect(printed.join("")).toMatch(/已把 1 天的旧归档移到 me@my\.dev 名下/);
+  expect(printed.join("")).toMatch(/已把 1 封邮件的目录名换成标识哈希/);
 });
 
 test("the archive marker stays at the root, where prune looks for it", async () => {
