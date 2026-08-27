@@ -63,9 +63,10 @@ export async function run(argv, { replyPositional = false } = {}) {
       (replyPositional ? "" : "\n(recipients go in --to, the body in --text)"));
   }
 
+  if (replyPositional && opts.reply) fail("--reply is implied by `cfmail reply <email-id>`; drop it");
+
   const reply = replyPositional ? positional[0] : opts.reply;
   if (replyPositional && !reply) fail("missing email id. Usage: cfmail reply <email-id> --text \"...\"");
-  if (replyPositional && opts.reply) fail("--reply is implied by `cfmail reply <email-id>`; drop it");
 
   if (opts.text != null && opts.textFile) fail("use either --text or --text-file, not both");
   let text = opts.text;

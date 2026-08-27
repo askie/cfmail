@@ -26,7 +26,7 @@ description: Administer a cloudflare-email service with the admin key using the 
 cfmail --version
 ```
 
-没有就装（需要 Node 18+），两种来源任选：
+没有就装（需要 Node 20+），两种来源任选：
 
 ```bash
 # 已经有仓库

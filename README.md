@@ -144,7 +144,7 @@ claude mcp add --transport http email https://你的子域名/mcp \
 
 ## 用「技能」让 Agent 上手（可移植，推荐）
 
-上面那种方式要把整个服务当 MCP 服务器接进客户端。如果你想让某个 **AI Agent**（Claude Code、或任何支持 skill 的 Agent）直接「会收邮件、会开通邮箱」，用 `skills/` 目录下这两份**自包含技能**更省事——拷过去就能用，运行时只需要 Node 18+，**不用 `npm install`**。
+上面那种方式要把整个服务当 MCP 服务器接进客户端。如果你想让某个 **AI Agent**（Claude Code、或任何支持 skill 的 Agent）直接「会收发邮件、会开通邮箱」，用 `skills/` 目录下这两份技能更省事——它们教 Agent 用下面这个 `cfmail` 命令干活，所以先装 CLI（需要 Node 20+），再把技能目录拷过去。
 
 ```
 skills/
@@ -156,7 +156,7 @@ skills/
 
 ### 第 0 步：装上 `cfmail` 命令行工具
 
-技能靠这个工具干活，先装（需要 Node 18+）：
+技能靠这个工具干活，先装（需要 Node 20+）：
 
 ```bash
 npm i -g ./cli        # 本地仓库

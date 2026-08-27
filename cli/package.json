@@ -5,6 +5,6 @@
   "type": "module",
   "license": "MIT",
   "bin": { "cfmail": "bin/cfmail.mjs" },
-  "engines": { "node": ">=18" },
+  "engines": { "node": ">=20" },
   "files": ["bin", "src", "README.md"]
 }

@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, afterEach } from "vitest";
+import { test, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, statSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -75,5 +75,12 @@ test("XDG_CONFIG_HOME decides the default path", () => {
 
 test("a corrupt config file is reported rather than silently ignored", () => {
   writeFileSync(process.env.EMAIL_INBOX_CONFIG, "{ not json");
-  expect(() => loadConfig("user")).toThrow();   // fail() exits; vitest surfaces it
+  const exit = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("EXIT"); });
+  const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+  expect(() => loadConfig("user")).toThrow("EXIT");
+  expect(err.mock.calls.map((c) => c[0]).join("")).toMatch(/not valid JSON/);
+
+  exit.mockRestore();
+  err.mockRestore();
 });

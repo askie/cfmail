@@ -22,7 +22,7 @@ description: Read and send mail through a cloudflare-email mailbox using the cfm
 cfmail --version
 ```
 
-没有就装，两种来源任选（需要 Node 18+）：
+没有就装，两种来源任选（需要 Node 20+）：
 
 ```bash
 # 已经有仓库
