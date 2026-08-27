@@ -35,14 +35,16 @@ function attr(tag, name) {
 // Only schemes that are safe to hand a chat client. Anything else — javascript:,
 // data:, vbscript:, and whatever comes next — loses its href and survives as
 // plain text. A blocklist would have to guess at the future; this does not.
-// Leading control characters and case are both normalised first: `JaVaScRiPt:`
-// and " javascript:" are the classic ways past a naive check.
 const SAFE_SCHEME = /^(https?:|mailto:)/i;
 
 function safeHref(href) {
-  const cleaned = href.replace(/[\u0000-\u0020]/g, "");
+  // `JaVaScRiPt:`, " javascript:" and "java\tscript:" are the classic ways past
+  // a naive check. \s covers NBSP; \x7f and the C1 range are not whitespace but
+  // are just as invisible.
+  const cleaned = href.replace(/[\s\u0000-\u0020\u007f-\u009f]/g, "");
   if (!cleaned) return "";
-  // A relative or anchor-only href has no scheme to abuse.
+  // No scheme at all: a relative, anchor-only or protocol-relative link. None
+  // of them can name a dangerous scheme, so they keep their href.
   if (!/^[a-z][a-z0-9+.-]*:/i.test(cleaned)) return href.trim();
   return SAFE_SCHEME.test(cleaned) ? href.trim() : "";
 }
@@ -52,25 +54,20 @@ function safeHref(href) {
 // including a clickable javascript: link, since the scheme check only sees the
 // href. `<a href="ok">a](javascript:evil) [b</a>` is the shape to keep out.
 function mdLabel(text) {
-  return reEscape(text.replace(/([\\[\]])/g, "\\$1"));
-}
-
-// Text pulled out of an attribute or an anchor is decoded here, but the whole
-// document is decoded again at the end. Without re-escaping the ampersands, a
-// doubly-encoded `&amp;lt;script&amp;gt;` would come back as a literal
-// `<script>` — after the tag-stripping pass has already run.
-function reEscape(text) {
-  return text.replace(/&/g, "&amp;");
+  return text.replace(/([\\[\]])/g, "\\$1");
 }
 
 function mdUrl(url) {
-  url = reEscape(url);
   // Percent-encode rather than wrap in <>: the angle-bracket form would be eaten
   // by the tag-stripping pass that runs after this one. These escapes are
-  // ordinary URL syntax, so the link still resolves.
+  // ordinary URL syntax, so the link still resolves — including for a bare URL
+  // printed as its own text, where a `[...]` inside it would otherwise start a
+  // link of the sender's choosing.
   return url
     .replace(/\(/g, "%28")
     .replace(/\)/g, "%29")
+    .replace(/\[/g, "%5B")
+    .replace(/\]/g, "%5D")
     .replace(/\s/g, "%20");
 }
 
@@ -78,6 +75,17 @@ export function htmlToMarkdown(html, { maxLinkLength = 200 } = {}) {
   if (!html) return "";
 
   let s = String(html);
+
+  // Links this converter builds are parked under a placeholder while the rest of
+  // the document is processed, then restored at the very end. That keeps two
+  // things straight: the body text can be escaped wholesale without mangling
+  // them, and they are decoded exactly once (inside the handler) rather than
+  // again by the final pass.
+  const links = [];
+  const park = (markdown) => {
+    links.push(markdown);
+    return `\u0000L${links.length - 1}\u0000`;
+  };
 
   // Content that is markup, not text.
   s = s.replace(/<!--[\s\S]*?-->/g, "");
@@ -90,18 +98,20 @@ export function htmlToMarkdown(html, { maxLinkLength = 200 } = {}) {
     (whole, tag, inner) => {
       const href = safeHref(attr(tag, "href"));
       const label = decodeEntities(inner.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
-      if (!href) return mdLabel(label);
-      if (href.length > maxLinkLength) return mdLabel(label) || reEscape(href.slice(0, maxLinkLength));
+      // Every branch parks its result: whatever comes out is a link this
+      // converter built, and nothing else in the output can be.
+      if (!href) return park(mdLabel(label));
+      if (href.length > maxLinkLength) return park(mdLabel(label) || mdUrl(href.slice(0, maxLinkLength)));
       // A link whose text already is the URL reads better bare.
-      if (!label || label === href) return reEscape(href);
-      return `[${mdLabel(label)}](${mdUrl(href)})`;
+      if (!label || label === href) return park(mdUrl(href));
+      return park(`[${mdLabel(label)}](${mdUrl(href)})`);
     }
   );
 
   // Images carry meaning only through their alt text.
   s = s.replace(/<img\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi, (whole, tag) => {
     const alt = attr(tag, "alt");
-    return alt ? `[图片: ${mdLabel(alt)}]` : "";
+    return alt ? park(`[图片: ${mdLabel(alt)}]`) : "";
   });
 
   s = s.replace(/<(h[1-6])\b[^>]*>([\s\S]*?)<\/\1>/gi, (whole, tag, inner) =>
@@ -129,6 +139,13 @@ export function htmlToMarkdown(html, { maxLinkLength = 200 } = {}) {
   s = s.replace(/<[a-z!/][^>"']*(?:"[^"]*"|'[^']*'[^>"']*)*>/gi, "");
   s = s.replace(/<[^>]+>/g, "");
   s = decodeEntities(s);
+
+  // The body is the sender's own text. Left alone, `[click](javascript:evil)`
+  // typed straight into an email would sail past every check above — the scheme
+  // allowlist only ever sees hrefs. Neutralising the brackets here makes every
+  // link in the output one this converter built.
+  s = s.replace(/([\[\]])/g, "\\$1");
+  s = s.replace(/\u0000L(\d+)\u0000/g, (whole, i) => links[Number(i)] ?? "");
 
   return s
     .replace(/[ \t ]+/g, " ")

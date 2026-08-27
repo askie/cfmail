@@ -119,6 +119,26 @@ test("ordinary ampersands still decode exactly once", () => {
     .toBe("https://x.com/?a=1&b=2");
 });
 
+test("an entity-encoded scheme is decoded before it is judged", () => {
+  // `&#106;avascript:` is javascript: once decoded; checking the raw attribute
+  // would wave it through.
+  expect(md('<a href="&#106;avascript:alert(1)">x</a>')).toBe("x");
+});
+
+test("an empty or whitespace-only href is dropped", () => {
+  expect(md('<a href="">文字</a>')).toBe("文字");
+  expect(md('<a href="   ">文字</a>')).toBe("文字");
+});
+
+test("triple-encoded markup still cannot become a tag", () => {
+  expect(md('<a href="https://x.com">&amp;amp;lt;script&amp;amp;gt;</a>'))
+    .toBe("[&amp;lt;script&amp;gt;](https://x.com)");
+});
+
+test("a backslash in a label is escaped so it cannot cancel the next escape", () => {
+  expect(md('<a href="https://x.com">a\\]b</a>')).toBe("[a\\\\\\]b](https://x.com)");
+});
+
 test("no output ever retains a tag", () => {
   const nasty = [
     '<a href="https://x.com/a>b">x</a>',
@@ -190,4 +210,44 @@ test("a real verification-code email becomes readable", () => {
   expect(out).toContain("[Verify now](https://app.example.com/verify?token=xyz)");
   expect(out).not.toContain("<");
   expect(out).not.toContain("style=");
+});
+
+// --- Markdown written into the body itself. -----------------------------------
+
+// The scheme allowlist only ever inspects hrefs. Markdown typed directly into
+// the email body never passes through it, so the brackets are neutralised and
+// only links this converter built survive as links.
+test.each([
+  ["a paragraph", "<p>[click](javascript:alert(1))</p>"],
+  ["bold text", "<b>[click](javascript:alert(1))</b>"],
+  ["a heading", "<h2>[click](javascript:alert(1))</h2>"],
+  ["a list item", "<ul><li>[click](javascript:alert(1))</li></ul>"],
+  ["a table cell", "<table><tr><td>[click](javascript:alert(1))</td></tr></table>"],
+])("markdown typed into %s cannot become a link", (_name, html) => {
+  const out = md(html);
+  expect(out).not.toMatch(/(?<!\\)\[click\]\(/);
+  expect(out).toContain("\\[click\\]");
+});
+
+test("a bare URL printed as its own text cannot carry a link inside it", () => {
+  // The label branch skips mdLabel, so the URL itself must be encoded.
+  const out = md('<a href="https://x.com/[a](javascript:evil)">https://x.com/[a](javascript:evil)</a>');
+  expect(out).not.toMatch(/(?<!\\)\[a\]\(javascript:/);
+  expect(out).toBe("https://x.com/%5Ba%5D%28javascript:evil%29");
+});
+
+test("invisible characters cannot smuggle a scheme past the allowlist", () => {
+  // NBSP is whitespace to \s but not to the C0 range alone.
+  expect(md('<a href="java\u00A0script:alert(1)">x</a>')).toBe("x");
+  expect(md('<a href="java\u007Fscript:alert(1)">x</a>')).toBe("x");
+});
+
+test("brackets in ordinary prose are escaped but still readable", () => {
+  expect(md("<p>见附件[1]和[2]</p>")).toBe("见附件\\[1\\]和\\[2\\]");
+});
+
+test("links this converter builds survive the body-wide escaping", () => {
+  const out = md('<p>见 <a href="https://x.com">这里</a> 和 <img alt="图" src="p.gif"></p>');
+  expect(out).toContain("[这里](https://x.com)");
+  expect(out).toContain("[图片: 图]");
 });
