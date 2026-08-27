@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync, statSy
 import { join, extname, resolve } from "node:path";
 import { isGrixKey, buildMessage, sendToGrix } from "../notify.mjs";
 import { htmlToMarkdown } from "../html2md.mjs";
+import { acquireLock, lockHolder } from "../lock.mjs";
 import { Mcp } from "../mcp.mjs";
 import { requireConfig, readStoredConfig, saveConfig } from "../config.mjs";
 import { parseArgs } from "../args.mjs";
@@ -44,6 +45,9 @@ export const help = `用法: cfmail sync [--dir <目录>] [选项]
 
 推送过的邮件目录里会留一个 .notified 标记，所以同一封邮件只会被推送一次，
 反复跑 sync 不会重复打扰。
+
+同一个归档目录同时只允许一个 sync。撞上了就跳过这次（不算失败），
+所以定时任务间隔短于单次耗时也不会乱，不需要 flock 之类的外部工具。
 
 示例:
   cfmail sync --dir ~/cfmail    第一次，指定目录
@@ -209,6 +213,31 @@ export async function run(argv) {
   const notifyKey = opts.noNotify ? null : opts.notify || stored.notifyKey;
   const pageSize = Math.min(Math.max(opts.limit ?? PAGE_MAX, 1), PAGE_MAX);
 
+  // One run at a time per archive. Two would each write mail the other cannot
+  // see, and could announce the same email twice — the `.notified` markers are
+  // not visible across them until both finish. A dry run reads nothing shared,
+  // so it does not need the lock.
+  let lock = null;
+  if (!opts.dryRun) {
+    lock = acquireLock(dir);
+    if (!lock) {
+      const other = lockHolder(dir);
+      const age = other?.age != null ? `${Math.round(other.age / 1000)} 秒前开始` : "正在运行";
+      if (isJson()) return json({ ok: true, skipped: "locked", dir, holder: other?.pid ?? null });
+      // Not an error: a scheduled run that finds the previous one still going
+      // should step aside quietly rather than alarm whoever set up the schedule.
+      return out(`另一个 sync 正在跑（${age}），这次跳过。\n目录: ${dir}`);
+    }
+  }
+
+  try {
+    return await syncWithLock(opts, cfg, stored, dir, notifyKey, pageSize, lock);
+  } finally {
+    lock?.release();
+  }
+}
+
+async function syncWithLock(opts, cfg, stored, dir, notifyKey, pageSize, lock) {
   // Written before any mail is fetched: an archive created by an older version,
   // or one that gets no new mail this run, still ends up marked — otherwise
   // `prune` would keep refusing to clean a folder that is genuinely ours.
@@ -295,6 +324,7 @@ export async function run(argv) {
       }, null, 2) + "\n"
     );
     written.push({ rel, folder, attachments: n, files: savedFiles, meta: mail });
+    lock?.touch();
   }
 
   if (!opts.dryRun) {
@@ -328,6 +358,7 @@ export async function run(argv) {
           // Marker written only after the POST succeeded.
           markNotified(item, new Date().toISOString());
           notified.push(item.rel);
+          lock?.touch();
         } catch (e) {
           notifyFailed.push({ rel: item.rel, error: e?.message ?? String(e) });
         }

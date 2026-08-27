@@ -131,3 +131,26 @@ test("the marker file itself is never deleted", async () => {
   await run(["--dir", archive, "--older-than", "30d", "--yes"]);
   expect(existsSync(join(archive, ".cfmail-archive"))).toBe(true);
 });
+
+test("prune waits for a sync rather than deleting under it", async () => {
+  const { acquireLock } = await import("../src/lock.mjs");
+  day(daysAgo(100));
+  const held = acquireLock(archive);
+
+  await run(["--dir", archive, "--older-than", "30d", "--yes"]);
+
+  expect(existsSync(join(archive, daysAgo(100)))).toBe(true);   // nothing removed
+  expect(output()).toMatch(/另一个 cfmail 正在用这个目录/);
+  held.release();
+});
+
+test("a prune dry run reads happily while a sync holds the lock", async () => {
+  const { acquireLock } = await import("../src/lock.mjs");
+  day(daysAgo(100));
+  const held = acquireLock(archive);
+
+  await run(["--dir", archive, "--older-than", "30d"]);
+  expect(output()).toMatch(/将删除/);
+
+  held.release();
+});

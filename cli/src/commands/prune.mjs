@@ -2,6 +2,7 @@ import { readdirSync, statSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { readStoredConfig } from "../config.mjs";
 import { MARKER } from "./sync.mjs";
+import { acquireLock, lockHolder, LOCK } from "../lock.mjs";
 import { parseArgs } from "../args.mjs";
 import { out, json, fail, isJson } from "../output.mjs";
 
@@ -31,6 +32,8 @@ export const help = `用法: cfmail prune --older-than <期限> [--dir <目录>]
   cfmail prune --older-than 90d           预演，看看会删什么
   cfmail prune --older-than 90d --yes     确认后真删
   cfmail prune --older-than 6m --dir ~/cfmail --yes
+
+真正删除时会和 sync 互斥：sync 正在写这个目录就跳过这次，不会删到一半的邮件。
 
 放进 cron 自动跑:
   0 4 * * *  cfmail sync && cfmail prune --older-than 90d --yes`;
@@ -65,6 +68,28 @@ export async function run(argv) {
     );
   }
 
+  // Deleting while a sync is writing could take a folder out from under it.
+  // A dry run only reads, so it never waits.
+  const apply0 = opts.yes && !opts.dryRun;
+  let lock = null;
+  if (apply0) {
+    lock = acquireLock(dir);
+    if (!lock) {
+      const other = lockHolder(dir);
+      const age = other?.age != null ? `${Math.round(other.age / 1000)} 秒前开始` : "正在运行";
+      if (isJson()) return json({ ok: true, skipped: "locked", dir, holder: other?.pid ?? null });
+      return out(`另一个 cfmail 正在用这个目录（${age}），这次跳过。\n目录: ${dir}`);
+    }
+  }
+
+  try {
+    return pruneWithLock(opts, dir);
+  } finally {
+    lock?.release();
+  }
+}
+
+function pruneWithLock(opts, dir) {
   const cutoff = Date.now() - parseAge(opts.olderThan);
   const doomed = [];
 
