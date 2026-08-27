@@ -3,6 +3,7 @@ import { join, extname, resolve } from "node:path";
 import { isGrixKey, buildMessage, sendToGrix } from "../notify.mjs";
 import { htmlToMarkdown } from "../html2md.mjs";
 import { acquireLock, lockHolder } from "../lock.mjs";
+import { MARKER, mailboxDir, migrateFlatArchive, isDayDir } from "../archive.mjs";
 import { Mcp } from "../mcp.mjs";
 import { requireConfig, readStoredConfig, saveConfig } from "../config.mjs";
 import { parseArgs } from "../args.mjs";
@@ -18,15 +19,19 @@ export const help = `用法: cfmail sync [--dir <目录>] [选项]
 把邮件（正文 + 附件）按天归档到本地目录。
 
 存出来的样子:
-  <目录>/2026-08-27/0930-发票-Q3-a1b2c3/
+  <目录>/me@example.com/2026-08-27/0930-发票-Q3-a1b2c3/
       meta.json          发件人、收件人、主题、时间、附件清单
       body.txt           纯文本正文
       body.md            仅当邮件没有纯文本正文时：由 HTML 转成的 Markdown
       body.html          仅 --html 时
       attachments/       附件，保留原始文件名
 
+先按邮箱分，再按天分。多个邮箱可以共用同一个 --dir，各归各的不会混在一起。
 目录名带邮件 id 后缀，所以同一分钟的同主题邮件不会互相覆盖。已归档过的会跳过，
 反复跑很便宜，适合放进定时任务。邮箱再大也会自动翻页取全。
+
+早先版本把日期目录直接放在根下（那时还没有多邮箱）。第一次跑新版会自动把它们
+移到当前邮箱名下，内容原样保留。
 
 参数:
   --dir <目录>   归档到哪。第一次给了之后会记住，以后直接 cfmail sync 即可
@@ -58,7 +63,7 @@ export const help = `用法: cfmail sync [--dir <目录>] [选项]
 
 // Marks a folder as one this tool owns. `prune` refuses to delete without it, so
 // pointing --dir at an unrelated path cannot wipe someone's files.
-export const MARKER = ".cfmail-archive";
+export { MARKER } from "../archive.mjs";
 
 // Written into an email's folder once it has been announced. Using the folder
 // itself as the record means the archive stays the single source of truth —
@@ -148,7 +153,7 @@ function isDir(path) {
 function pendingNotifications(dir) {
   const out = [];
   for (const day of readdirSync(dir)) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    if (!isDayDir(day)) continue;
     const dayPath = join(dir, day);
     if (!isDir(dayPath)) continue;
 
@@ -204,8 +209,8 @@ export async function run(argv) {
   // every file:// link in a notification point nowhere, and would be written
   // straight back on save, so it could never correct itself.
   const chosen = opts.dir || stored.syncDir;
-  const dir = chosen && resolve(chosen);
-  if (!dir) fail("no archive folder. Run once with --dir <path>; it is remembered afterwards.");
+  const root = chosen && resolve(chosen);
+  if (!root) fail("no archive folder. Run once with --dir <path>; it is remembered afterwards.");
 
   if (opts.notify && !isGrixKey(opts.notify)) {
     fail("--notify expects a Grix key starting with whk_");
@@ -217,6 +222,11 @@ export async function run(argv) {
   // see, and could announce the same email twice — the `.notified` markers are
   // not visible across them until both finish. A dry run reads nothing shared,
   // so it does not need the lock.
+  // Mail is filed under the address it arrived at, so two mailboxes can share
+  // one root without their days running together.
+  const dir = mailboxDir(root, cfg.email);
+  const moved = opts.dryRun ? 0 : migrateFlatArchive(root, cfg.email);
+
   let lock = null;
   if (!opts.dryRun) {
     lock = acquireLock(dir);
@@ -231,19 +241,19 @@ export async function run(argv) {
   }
 
   try {
-    return await syncWithLock(opts, cfg, stored, dir, notifyKey, pageSize, lock);
+    return await syncWithLock(opts, cfg, stored, root, dir, moved, notifyKey, pageSize, lock);
   } finally {
     lock?.release();
   }
 }
 
-async function syncWithLock(opts, cfg, stored, dir, notifyKey, pageSize, lock) {
+async function syncWithLock(opts, cfg, stored, root, dir, moved, notifyKey, pageSize, lock) {
   // Written before any mail is fetched: an archive created by an older version,
   // or one that gets no new mail this run, still ends up marked — otherwise
   // `prune` would keep refusing to clean a folder that is genuinely ours.
   if (!opts.dryRun) {
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, MARKER), "cfmail archive\n");
+    writeFileSync(join(root, MARKER), "cfmail archive\n");
   }
 
   const mcp = await new Mcp(cfg.base, cfg.key).connect();
@@ -333,7 +343,7 @@ async function syncWithLock(opts, cfg, stored, dir, notifyKey, pageSize, lock) {
   if (!opts.dryRun) {
     // An email whose attachments failed must not be sealed off by the cursor.
     const cursor = incomplete ? (stored.syncCursor ?? 0) : Math.max(newest, stored.syncCursor ?? 0);
-    saveConfig({ ...readStoredConfig("user"), syncDir: dir, syncCursor: cursor }, "user");
+    saveConfig({ ...readStoredConfig("user"), syncDir: root, syncCursor: cursor }, "user");
   }
 
   // Announce after everything is on disk, so every link in a message points at a
@@ -373,11 +383,13 @@ async function syncWithLock(opts, cfg, stored, dir, notifyKey, pageSize, lock) {
 
   if (isJson()) {
     return json({
-      ok: true, dir, written: written.length, skipped, incomplete,
+      ok: true, root, dir, mailbox: cfg.email, migrated: moved,
+      written: written.length, skipped, incomplete,
       notified: notified.length, backfilled, notify_failed: notifyFailed,
       dry_run: !!opts.dryRun, items: written.map((w) => ({ rel: w.rel, attachments: w.attachments })),
     });
   }
+  if (moved) out(`已把 ${moved} 天的旧归档移到 ${cfg.email} 名下\n`);
   out(
     `${opts.dryRun ? "将归档" : "已归档"} ${written.length} 封` +
     (skipped ? `，跳过 ${skipped} 封（已存在）` : "") +

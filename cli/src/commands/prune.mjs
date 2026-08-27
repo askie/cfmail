@@ -1,8 +1,8 @@
 import { readdirSync, statSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { readStoredConfig } from "../config.mjs";
-import { MARKER } from "./sync.mjs";
-import { acquireLock, lockHolder, LOCK } from "../lock.mjs";
+import { readStoredConfig, loadConfig } from "../config.mjs";
+import { MARKER, mailboxDir, isDayDir } from "../archive.mjs";
+import { acquireLock, lockHolder } from "../lock.mjs";
 import { parseArgs } from "../args.mjs";
 import { out, json, fail, isJson } from "../output.mjs";
 
@@ -11,6 +11,8 @@ const SPEC = { "--dir": "string", "--older-than": "string", "--yes": "bool", "--
 export const help = `用法: cfmail prune --older-than <期限> [--dir <目录>] [--yes]
 
 删除本地归档里超过指定时长的邮件。只删本地，服务器上的邮件一封都不动。
+
+只清理当前邮箱的归档（<目录>/<邮箱>/ 下面），同一个目录下别的邮箱不受影响。
 
 参数:
   --older-than <期限>  必需。数字加单位: d=天 w=周(7天) m=月(30天) y=年(365天)
@@ -46,26 +48,31 @@ function parseAge(text) {
   return Number(m[1]) * UNITS[m[2].toLowerCase()] * 86400_000;
 }
 
-// Only day folders written by sync are considered, so pointing --dir at the
-// wrong place cannot wipe unrelated files.
-const DAY_DIR = /^\d{4}-\d{2}-\d{2}$/;
-
 export async function run(argv) {
   const { opts } = parseArgs(argv, SPEC);
   const stored = readStoredConfig("user");
-  const dir = opts.dir || stored.syncDir;
+  const root = opts.dir || stored.syncDir;
 
-  if (!dir) fail("no archive folder. Pass --dir <path>, or run `cfmail sync --dir <path>` first.");
+  if (!root) fail("no archive folder. Pass --dir <path>, or run `cfmail sync --dir <path>` first.");
   if (!opts.olderThan) fail("missing --older-than <age>, for example --older-than 90d");
-  if (!existsSync(dir)) fail(`archive folder does not exist: ${dir}`);
+  if (!existsSync(root)) fail(`archive folder does not exist: ${root}`);
   // Refuse to delete anywhere `cfmail sync` has not written. Without this, a
   // --dir typo pointing at a folder that happens to hold date-named directories
   // would wipe them.
-  if (!existsSync(join(dir, MARKER))) {
+  if (!existsSync(join(root, MARKER))) {
     fail(
-      `${dir} is not a cfmail archive (no ${MARKER}).\n` +
-      `Run \`cfmail sync --dir ${dir}\` first, or point --dir at the right folder.`
+      `${root} is not a cfmail archive (no ${MARKER}).\n` +
+      `Run \`cfmail sync --dir ${root}\` first, or point --dir at the right folder.`
     );
+  }
+
+  // Clean only the mailbox in play, mirroring how sync files mail. Another
+  // mailbox's archive under the same root is none of this run's business.
+  const cfg = loadConfig("user");
+  const dir = mailboxDir(root, cfg.email);
+  if (!existsSync(dir)) {
+    if (isJson()) return json({ ok: true, root, mailbox: cfg.email, days: 0, emails: 0, removed: [] });
+    return out(`${cfg.email} 在 ${root} 下还没有归档，无需清理。`);
   }
 
   // Deleting while a sync is writing could take a folder out from under it.
@@ -83,18 +90,18 @@ export async function run(argv) {
   }
 
   try {
-    return pruneWithLock(opts, dir);
+    return pruneWithLock(opts, root, dir, cfg.email);
   } finally {
     lock?.release();
   }
 }
 
-function pruneWithLock(opts, dir) {
+function pruneWithLock(opts, root, dir, mailbox) {
   const cutoff = Date.now() - parseAge(opts.olderThan);
   const doomed = [];
 
   for (const name of readdirSync(dir)) {
-    if (!DAY_DIR.test(name)) continue;
+    if (!isDayDir(name)) continue;
     const dayPath = join(dir, name);
     if (!statSync(dayPath).isDirectory()) continue;
     // The folder name is the mail's own date, which is what should age out —
@@ -112,7 +119,7 @@ function pruneWithLock(opts, dir) {
 
   if (isJson()) {
     return json({
-      ok: true, dir, older_than: opts.olderThan, applied: apply,
+      ok: true, root, dir, mailbox, older_than: opts.olderThan, applied: apply,
       days: doomed.length, emails: total, removed: doomed.map((d) => d.day),
     });
   }
