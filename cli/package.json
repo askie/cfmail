@@ -1,0 +1,10 @@
+{
+  "name": "cfmail",
+  "version": "1.0.0",
+  "description": "Command-line client for a cloudflare-email mailbox: read, search, send and administer mail.",
+  "type": "module",
+  "license": "MIT",
+  "bin": { "cfmail": "bin/cfmail.mjs" },
+  "engines": { "node": ">=18" },
+  "files": ["bin", "src", "README.md"]
+}
