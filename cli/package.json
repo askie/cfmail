@@ -4,6 +4,24 @@
   "description": "Command-line client for a cloudflare-email mailbox: read, search, send and administer mail.",
   "type": "module",
   "license": "MIT",
+  "author": "askie",
+  "homepage": "https://github.com/askie/cloudflare-email/tree/main/cli#readme",
+  "bugs": {
+    "url": "https://github.com/askie/cloudflare-email/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/askie/cloudflare-email.git",
+    "directory": "cli"
+  },
+  "keywords": [
+    "email",
+    "cli",
+    "cloudflare",
+    "mcp",
+    "agent",
+    "resend"
+  ],
   "bin": {
     "cfmail": "bin/cfmail.mjs"
   },
@@ -13,7 +31,8 @@
   "files": [
     "bin",
     "src",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "dependencies": {
     "turndown": "^7.2.4"
