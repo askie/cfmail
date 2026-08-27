@@ -159,7 +159,7 @@ skills/
 技能靠这个工具干活，先装（需要 Node 20+）：
 
 ```bash
-npm i -g ./cli        # 本地仓库
+cd cli && npm i -g $(npm pack | tail -1)
 cfmail --help
 ```
 
@@ -167,8 +167,11 @@ cfmail --help
 
 ```bash
 git clone https://github.com/askie/cloudflare-email.git
-npm i -g ./cloudflare-email/cli
+cd cloudflare-email/cli && npm i -g $(npm pack | tail -1)
 ```
+
+> 先 `npm pack` 再装，而不是 `npm i -g ./cli`：后者装的是指向源码目录的符号链接，
+> 仓库一移动就坏；仓库若在外置卷上，定时任务那类受限环境还会访问不到而报 `EPERM`。
 
 装完之后 `cfmail` 在任何目录都能用。它把这个服务的全部能力做成了子命令——收信、搜索、发信、回信、附件、管理密钥，详见 [cli/README.md](./cli/README.md)。
 

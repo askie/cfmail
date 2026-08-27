@@ -3,15 +3,19 @@
 收发 [cloudflare-email](../README.md) 邮箱的命令行工具。只要 Node 20+，`npm i -g` 会自动装上依赖。
 
 ```bash
-npm i -g ./cli          # 从本仓库安装
+cd cli && npm i -g $(npm pack | tail -1)   # 从本仓库安装
 cfmail --help
 ```
+
+> **别用 `npm i -g ./cli`**：那样装的是一个指向源码目录的符号链接，仓库一移动
+> CLI 就坏了。更麻烦的是，如果仓库放在外置卷上，`launchd` / 计划任务这类受限
+> 环境访问不到那个路径，定时同步会以 `EPERM` 失败。先 `npm pack` 再装是真正的复制。
 
 在别的机器上：
 
 ```bash
 git clone https://github.com/askie/cloudflare-email.git
-npm i -g ./cloudflare-email/cli
+cd cloudflare-email/cli && npm i -g $(npm pack | tail -1)
 ```
 
 ## 配置
@@ -189,6 +193,57 @@ cfmail sync --no-notify                           # 这次不推
 > 一个边角，知道就好：换一把新 key 时不会再静默——如果你手动删过 `.notified` 或从备份恢复了归档，那些邮件会推到新会话。
 
 **同一个归档目录同时只跑一个 sync。** 撞上了就跳过这次，退出码仍是 0，所以 cron 间隔短于单次耗时也不会乱，也不需要 `flock` 之类的外部工具（Windows 上本来也没有）。上一次跑崩了留下的锁，五分钟后自动接管。
+
+## 定时自动同步
+
+`sync` 设计成可以反复跑（撞上没跑完的会自己跳过），扔进系统的定时机制即可。
+
+**macOS（launchd，推荐）** —— cron 在 macOS 上要写系统目录、需要「完全磁盘访问」权限，
+launchd 写的是你自己的 `~/Library/LaunchAgents`，不需要额外授权：
+
+```bash
+cat > ~/Library/LaunchAgents/com.cfmail.sync.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.cfmail.sync</string>
+    <key>ProgramArguments</key>
+    <array><string>$(which cfmail)</string><string>sync</string></array>
+    <key>StartInterval</key><integer>60</integer>
+    <key>RunAtLoad</key><true/>
+    <key>StandardOutPath</key><string>$HOME/.cfmail-sync.log</string>
+    <key>StandardErrorPath</key><string>$HOME/.cfmail-sync.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key><string>$(dirname $(which cfmail)):/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key><string>$HOME</string>
+    </dict>
+</dict>
+</plist>
+EOF
+
+launchctl load ~/Library/LaunchAgents/com.cfmail.sync.plist
+tail -f ~/.cfmail-sync.log      # 看它在跑
+```
+
+停掉：`launchctl unload ~/Library/LaunchAgents/com.cfmail.sync.plist`
+
+**Linux（cron）**
+
+```bash
+* * * * *  cfmail sync >> $HOME/.cfmail-sync.log 2>&1
+0 4 * * *  cfmail prune --older-than 90d --yes
+```
+
+**Windows（任务计划程序）**
+
+```powershell
+schtasks /create /tn "cfmail sync" /tr "cfmail sync" /sc minute /mo 1
+```
+
+> 不需要 `flock` 之类的外部工具：同一个归档目录同时只跑一个 `sync`，
+> 撞上就跳过这次并以 0 退出，间隔设多密都不会乱。
 
 ## 发信
 

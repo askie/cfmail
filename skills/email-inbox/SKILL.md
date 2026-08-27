@@ -26,11 +26,11 @@ cfmail --version
 
 ```bash
 # 已经有仓库
-npm i -g /path/to/cloudflare-email/cli
+cd /path/to/cloudflare-email/cli && npm i -g $(npm pack | tail -1)
 
 # 没有仓库就先取一份（npm 不支持直接装 git 仓库的子目录）
 git clone https://github.com/askie/cloudflare-email.git
-npm i -g ./cloudflare-email/cli
+cd cloudflare-email/cli && npm i -g $(npm pack | tail -1)
 ```
 
 装完 `cfmail` 在任何目录都能用，不需要 `cd` 到技能目录。
