@@ -12,9 +12,10 @@ export const help = `cfmail admin <command>
   create-key <email>                       issue a mailbox key bound to that address
   list-keys                                list issued keys
   delete-key <email>                       revoke that address's key
-  webhook                                  show the new-mail webhook
-  webhook --set <url>                      set it
-  webhook --clear                          disable it
+  webhook                                  show where new-mail notifications go
+  webhook --set whk_xxx                    send them to Grix as chat messages
+  webhook --set https://...                POST the raw JSON event there instead
+  webhook --clear                          turn notifications off
 
 The admin token is stored separately from user keys, in
 ${configPath("admin")}. Never hand it to someone who should only read one mailbox.`;
@@ -87,6 +88,17 @@ async function deleteKey(argv) {
   out(`已吊销 ${email} 的 Key，该 Key 立即失效。`);
 }
 
+function describeWebhook(res) {
+  if (!res?.webhook) return "尚未配置新邮件通知。";
+  if (res.kind !== "grix") return `新邮件会 POST 到: ${res.webhook}`;
+  // The key is the entire credential — anyone holding it can post to that chat.
+  // A short key would show in full (and repeat its tail) if sliced blindly.
+  const masked = res.webhook.length > 16
+    ? `${res.webhook.slice(0, 12)}…${res.webhook.slice(-4)}`
+    : `${res.webhook.slice(0, 4)}…`;
+  return `新邮件会作为聊天消息推送到 Grix\nKey: ${masked}`;
+}
+
 async function webhook(argv) {
   const { opts } = parseArgs(argv, { "--set": "string", "--clear": "bool" });
   const mcp = await adminMcp();
@@ -96,12 +108,12 @@ async function webhook(argv) {
     const res = await mcp.call("set_webhook", { url });
     if (!res?.ok) fail(res?.error || "could not update the webhook");
     if (isJson()) return json(res);
-    return out(res.webhook_url ? `新邮件将通知到: ${res.webhook_url}` : "新邮件通知已关闭。");
+    return out(res.webhook ? describeWebhook(res) : "新邮件通知已关闭。");
   }
 
   const res = await mcp.call("get_webhook");
   if (isJson()) return json({ ok: true, ...res });
-  out(res?.webhook_url ? `当前通知地址: ${res.webhook_url}` : "尚未配置新邮件通知。");
+  out(describeWebhook(res));
 }
 
 const SUB = {

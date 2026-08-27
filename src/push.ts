@@ -1,13 +1,58 @@
 import type { Env, EmailRow } from "./types";
 import { getWebhook } from "./config";
 
-// POST a compact "new email" event to the configured webhook (if any).
-// Best-effort: failures are logged, never block ingestion.
-export async function pushNewEmail(env: Env, row: EmailRow): Promise<void> {
-  const url = await getWebhook(env);
-  if (!url) return;
+// A Grix inbound webhook is identified by its key alone; the endpoint is fixed.
+// Storing just the key keeps the secret short enough to paste and makes the
+// target unambiguous.
+const GRIX_ENDPOINT = "https://grix.dhf.pub/v1/webhook/incoming/";
+const GRIX_KEY = /^whk_[A-Za-z0-9_-]+$/;
 
-  const payload = {
+export function isGrixKey(value: string): boolean {
+  return GRIX_KEY.test(value.trim());
+}
+
+export function webhookTarget(value: string): string {
+  const v = value.trim();
+  return isGrixKey(v) ? GRIX_ENDPOINT + v : v;
+}
+
+function snippet(text: string | null, len: number): string | null {
+  if (!text) return null;
+  const t = text.replace(/\s+/g, " ").trim();
+  // Slice by code point: cutting a surrogate pair in half would emit a lone
+  // surrogate into the JSON payload.
+  const chars = [...t];
+  return chars.length > len ? chars.slice(0, len).join("") + "…" : t;
+}
+
+// Grix renders `content` as a chat message, so it has to read as one — a JSON
+// dump would show up verbatim in the conversation.
+function grixBody(row: EmailRow) {
+  const sender = row.from_name && row.from_addr
+    ? `${row.from_name} <${row.from_addr}>`
+    : row.from_name || row.from_addr || "(未知发件人)";
+  const lines = [
+    `📬 新邮件${row.has_attachments ? "（含附件）" : ""}`,
+    `发件人: ${sender}`,
+    `收件人: ${row.to_addr || "(未知)"}`,
+    // Bulk senders sometimes use very long subjects; cap it like the body.
+    `主题: ${snippet(row.subject, 120) || "(无主题)"}`,
+  ];
+  const body = snippet(row.text_body, 500);
+  if (body) lines.push("", body);
+
+  return {
+    content: lines.join("\n"),
+    msg_type: "text",
+    // The RFC Message-ID, which stays the same when Email Routing redelivers a
+    // message. The storage id would not: every ingest mints a fresh UUID, so a
+    // redelivery would look like a new message to Grix and post twice.
+    client_msg_id: row.msg_id || row.id,
+  };
+}
+
+function genericBody(row: EmailRow) {
+  return {
     type: "email.received",
     id: row.id,
     from: row.from_addr,
@@ -16,8 +61,18 @@ export async function pushNewEmail(env: Env, row: EmailRow): Promise<void> {
     subject: row.subject,
     date: row.date,
     has_attachments: !!row.has_attachments,
-    snippet: row.text_body ? row.text_body.replace(/\s+/g, " ").trim().slice(0, 280) : null,
+    snippet: snippet(row.text_body, 280),
   };
+}
+
+// POST a "new email" event to the configured webhook (if any).
+// Best-effort: failures are logged, never block ingestion.
+export async function pushNewEmail(env: Env, row: EmailRow): Promise<void> {
+  const configured = await getWebhook(env);
+  if (!configured) return;
+
+  const url = webhookTarget(configured);
+  const payload = isGrixKey(configured) ? grixBody(row) : genericBody(row);
 
   try {
     const res = await fetch(url, {

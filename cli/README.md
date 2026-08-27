@@ -117,7 +117,11 @@ cfmail send --to a@x.com --subject "长文" --text-file ./body.txt
 cfmail admin create-key alice@example.com   # 开通邮箱，Key 只显示一次
 cfmail admin list-keys
 cfmail admin delete-key alice@example.com
-cfmail admin webhook [--set <url> | --clear]
+
+cfmail admin webhook                        # 看当前通知设置
+cfmail admin webhook --set whk_xxx          # 新邮件推到 Grix 聊天里
+cfmail admin webhook --set https://...      # 或 POST 原始 JSON 给自己的程序
+cfmail admin webhook --clear
 ```
 
 ## 脚本化

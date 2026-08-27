@@ -13,10 +13,23 @@ import {
   deleteApiKey,
 } from "./store";
 import { getWebhook, setWebhook } from "./config";
+import { isGrixKey, webhookTarget } from "./push";
 import { sendEmail, resolveSender } from "./send";
 
 function json(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+}
+
+// One shape for both webhook tools, always with the same keys. `webhook_url` is
+// kept for callers written against the older field name.
+function describeWebhook(configured: string | null) {
+  if (!configured) return { webhook: null, webhook_url: null, kind: null, target: null };
+  return {
+    webhook: configured,
+    webhook_url: configured,
+    kind: isGrixKey(configured) ? "grix" : "url",
+    target: webhookTarget(configured),
+  };
 }
 
 function toMs(s?: string): number | undefined {
@@ -155,26 +168,30 @@ export class EmailMCP extends McpAgent<Env> {
 
     this.server.tool(
       "get_webhook",
-      "Get the currently configured webhook URL that receives new-email notifications.",
+      "Get the currently configured new-email notification target: a Grix whk_ key or a plain webhook URL.",
       {},
       async () => {
         if (!this.isAdmin) return json({ error: "Permission denied: admin only" });
-        return json({ webhook_url: await getWebhook(this.env) });
+        const configured = await getWebhook(this.env);
+        return json(describeWebhook(configured));
       }
     );
 
     this.server.tool(
       "set_webhook",
-      "Set or clear the webhook URL. New emails are POSTed there as JSON. Pass an empty string to disable.",
-      { url: z.string().describe("Webhook URL, or empty string to clear") },
+      "Set or clear where new-email notifications go. Pass a Grix key (whk_...) to post chat messages to Grix, or an http(s):// URL to receive the raw JSON event. Empty string disables notifications.",
+      { url: z.string().describe("Grix key (whk_...), a webhook URL, or empty string to clear") },
       async ({ url }) => {
         if (!this.isAdmin) return json({ error: "Permission denied: admin only" });
         const trimmed = url.trim();
-        if (trimmed && !/^https?:\/\//i.test(trimmed)) {
-          return json({ ok: false, error: "url must start with http(s)://" });
+        if (trimmed && !isGrixKey(trimmed) && !/^https?:\/\//i.test(trimmed)) {
+          return json({
+            ok: false,
+            error: "expected a Grix key starting with whk_, or a URL starting with http(s)://",
+          });
         }
         await setWebhook(this.env, trimmed || null);
-        return json({ ok: true, webhook_url: trimmed || null });
+        return json({ ok: true, ...describeWebhook(trimmed || null) });
       }
     );
 

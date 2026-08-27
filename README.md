@@ -348,13 +348,38 @@ npx wrangler secret put RESEND_API_KEY -c wrangler.local.jsonc
 
 ## 新邮件提醒（可选）
 
-想让新邮件来的时候自动通知你（或通知你的某个程序）？让 AI 执行：
+想让新邮件来的时候自动通知你？两种方式：
+
+**推到 Grix 聊天里**（只要一个 key）：
+
+```bash
+cfmail admin webhook --set whk_你的key
+```
+
+之后每来一封邮件，Grix 里就会收到一条消息，长这样：
 
 ```
-set_webhook(url="https://你的接收地址")
+📬 新邮件（含附件）
+发件人: 张三 <zhangsan@example.com>
+收件人: you@你的域名
+主题: 8 月账单
+
+账单已生成，请查收附件……
 ```
 
-之后每来一封邮件，服务就会往这个地址发一条 JSON 通知（含发件人、主题、摘要等）。不想要了就设成空：`set_webhook(url="")`。
+**POST 给你自己的程序**：
+
+```bash
+cfmail admin webhook --set https://你的接收地址
+```
+
+这种方式发的是原始 JSON 事件（含发件人、主题、摘要、附件标记等），适合自己写处理逻辑。
+
+关掉：`cfmail admin webhook --clear`。查看当前设置：`cfmail admin webhook`。
+
+> 服务靠值的形态自动判断：`whk_` 开头当作 Grix key，`http(s)://` 开头当作普通 URL，其它一律拒绝。
+>
+> 推送是「尽力而为」的——通知失败只记日志，绝不会影响邮件本身的接收和存档。
 
 ---
 
