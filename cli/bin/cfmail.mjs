@@ -1,0 +1,81 @@
+#!/usr/bin/env node
+// cfmail — command-line client for a cloudflare-email mailbox.
+//
+// Every command accepts --json for machine-readable output; failures then print
+// a JSON object too, and always exit non-zero.
+
+import pkg from "../package.json" with { type: "json" };
+import { setJsonMode, out, fail } from "../src/output.mjs";
+
+import * as setup from "../src/commands/setup.mjs";
+import * as unread from "../src/commands/unread.mjs";
+import * as list from "../src/commands/list.mjs";
+import * as read from "../src/commands/read.mjs";
+import * as search from "../src/commands/search.mjs";
+import * as attachment from "../src/commands/attachment.mjs";
+import * as stats from "../src/commands/stats.mjs";
+import * as send from "../src/commands/send.mjs";
+import * as admin from "../src/commands/admin.mjs";
+
+const COMMANDS = {
+  setup, unread, list, read, search, attachment, stats, send, admin,
+  // Replying is sending with the id given positionally; one implementation.
+  reply: { help: send.help, run: (argv) => send.run(argv, { replyPositional: true }) },
+};
+
+const USAGE = `cfmail — 收发 cloudflare-email 邮箱的命令行工具
+
+收信
+  cfmail unread [--peek] [--all] [--limit N] [--reset]   收最新未读邮件
+  cfmail list [--from X] [--subject X] [--limit N]       按条件列邮件
+  cfmail read <email-id> [--html]                        读某封的全文和附件清单
+  cfmail search "关键字" [--limit N]                      全文搜索（支持中文）
+  cfmail attachment <attachment-id> --out <path>         下载附件
+  cfmail stats                                           邮箱统计
+
+发信
+  cfmail send --to a@x.com --subject "标题" --text "正文"  发一封
+  cfmail reply <email-id> --text "回复内容"                在原会话里回信
+    --attach <path>               带上本地文件
+    --forward-attachment <id>     转发收到的附件（不用先下载）
+    --text-file <path>            正文从文件读（长正文、中文更省事）
+
+配置
+  cfmail setup --base <url> --email <地址> --key <key>    配置并当场验证
+
+管理（需要管理员令牌）
+  cfmail admin setup --base <url> --key <admin-token>
+  cfmail admin create-key <email>          给某个地址开通邮箱
+  cfmail admin list-keys                   看已发放的 Key
+  cfmail admin delete-key <email>          吊销某个地址的 Key
+  cfmail admin webhook [--set <url>|--clear]
+
+通用
+  --json          机器可读输出（失败也是 JSON，且退出码非 0）
+  --help          任意命令后加它看详细用法
+
+环境变量可覆盖配置文件：EMAIL_INBOX_BASE / EMAIL_INBOX_EMAIL / EMAIL_INBOX_KEY /
+EMAIL_INBOX_CONFIG（管理端同理 EMAIL_ADMIN_*）。`;
+
+async function main() {
+  const argv = process.argv.slice(2);
+  const name = argv[0];
+
+  if (!name || name === "--help" || name === "-h" || name === "help") return out(USAGE);
+  if (name === "--version" || name === "-v") return out(`cfmail ${pkg.version}`);
+
+  const cmd = COMMANDS[name];
+  if (!cmd) fail(`unknown command: ${name}\n\nRun \`cfmail --help\` to see what is available.`);
+
+  let rest = argv.slice(1);
+  // --json is global, so strip it before the command parses its own flags.
+  if (rest.includes("--json")) {
+    setJsonMode(true);
+    rest = rest.filter((a) => a !== "--json");
+  }
+  if (rest.includes("--help") || rest.includes("-h")) return out(cmd.help);
+
+  await cmd.run(rest);
+}
+
+main().catch((e) => fail(e?.message || String(e)));

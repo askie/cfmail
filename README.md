@@ -144,7 +144,7 @@ claude mcp add --transport http email https://你的子域名/mcp \
 
 ## 用「技能」让 Agent 上手（可移植，推荐）
 
-上面那种方式要把整个服务当 MCP 服务器接进客户端。如果你想让某个 **AI Agent**（Claude Code、或任何支持 skill 的 Agent）直接「会收邮件、会开通邮箱」，用 `skills/` 目录下这两份**自包含技能**更省事——拷过去就能用，运行时只需要 Node 18+，**不用 `npm install`**。
+上面那种方式要把整个服务当 MCP 服务器接进客户端。如果你想让某个 **AI Agent**（Claude Code、或任何支持 skill 的 Agent）直接「会收发邮件、会开通邮箱」，用 `skills/` 目录下这两份技能更省事——它们教 Agent 用下面这个 `cfmail` 命令干活，所以先装 CLI（需要 Node 20+），再把技能目录拷过去。
 
 ```
 skills/
@@ -153,6 +153,32 @@ skills/
 ```
 
 两者配套：**管理员**用 `email-admin` 为某个邮箱地址签发一把 Key，**用户**把这把 Key 配进 `email-inbox` 就能收信。
+
+### 第 0 步：装上 `cfmail` 命令行工具
+
+技能靠这个工具干活，先装（需要 Node 20+）：
+
+```bash
+npm i -g ./cli        # 本地仓库
+cfmail --help
+```
+
+别人先 clone 再装（npm 不支持直接装 git 仓库的子目录）：
+
+```bash
+git clone https://github.com/askie/cloudflare-email.git
+npm i -g ./cloudflare-email/cli
+```
+
+装完之后 `cfmail` 在任何目录都能用。它把这个服务的全部能力做成了子命令——收信、搜索、发信、回信、附件、管理密钥，详见 [cli/README.md](./cli/README.md)。
+
+不用技能、直接命令行用也完全可以：
+
+```bash
+cfmail setup --base https://你的子域名 --email you@你的域名 --key <你的Key>
+cfmail unread
+cfmail send --to someone@example.com --subject "标题" --text "正文"
+```
 
 ### 第 1 步：把技能放进 Agent 的技能目录
 
@@ -169,30 +195,28 @@ cp -r skills/email-admin  你的项目/.claude/skills/
 ### 第 2 步（管理员）：开通一个邮箱
 
 ```bash
-cd .claude/skills/email-admin
 # 一次性配置：服务地址 + 管理员密钥（部署时设置的 MCP_TOKEN）
-node scripts/admin.mjs setup --base https://你的子域名 --key <管理员MCP_TOKEN>
-# 给某个地址开通邮箱，命令会打印一把明文 Key（只显示一次）
-node scripts/admin.mjs create-key --email alice@你的域名
+cfmail admin setup --base https://你的子域名 --key <管理员MCP_TOKEN>
+# 给某个地址开通邮箱，会打印一把明文 Key（只显示一次）
+cfmail admin create-key alice@你的域名
 ```
 
-其它管理命令：`list-keys`（看已开通的邮箱）、`delete-key --email ...`（吊销）、`get-webhook` / `set-webhook --url ...`（新邮件提醒）。
+其它管理命令：`cfmail admin list-keys`（看已开通的邮箱）、`delete-key <邮箱>`（吊销）、`webhook [--set <url>|--clear]`（新邮件提醒）。
 
 ### 第 3 步（用户）：用 Key 收发邮件
 
 ```bash
-cd .claude/skills/email-inbox
 # 一次性配置：服务地址 + 自己的邮箱 + 上一步拿到的 Key
-node scripts/setup.mjs --base https://你的子域名 --email alice@你的域名 --key <你的Key>
+cfmail setup --base https://你的子域名 --email alice@你的域名 --key <你的Key>
 # 收取最新未读邮件（首次给最近的存量，之后只给新到的）
-node scripts/fetch-unread.mjs
+cfmail unread
 # 发一封邮件
-node scripts/send-email.mjs --to someone@example.com --subject "标题" --text "正文"
+cfmail send --to someone@example.com --subject "标题" --text "正文"
 # 回复某封邮件（收件人、主题、会话线索自动推导）
-node scripts/send-email.mjs --reply <邮件id> --text "回复内容"
+cfmail reply <邮件id> --text "回复内容"
 ```
 
-配好之后，对 Agent 说「看看有没有新邮件」「找一下验证码邮件」「回复一下那封发票邮件」，它就会自己选合适的脚本，按需读全文、取附件、回信。
+配好之后，对 Agent 说「看看有没有新邮件」「找一下验证码邮件」「回复一下那封发票邮件」，它就会自己选合适的命令，按需读全文、取附件、回信。
 
 > 发信用的是 Key 绑定的那个地址，改不了——服务端强制的，所以拿到 Key 的人发不出别人的地址。
 
@@ -200,10 +224,11 @@ node scripts/send-email.mjs --reply <邮件id> --text "回复内容"
 
 - 连接信息（含 Key）只存在**运行 Agent 的本机**：
   - 用户端：`~/.config/email-inbox/config.json`
-  - 管理端：`~/.config/email-admin/config.json`
+  - 管理端：`~/.config/email-admin/config.json`（与用户端分开，管理员密钥不会和普通 Key 放一起）
 - 可用环境变量覆盖文件，便于多账号或脚本化：`EMAIL_INBOX_BASE` / `EMAIL_INBOX_EMAIL` / `EMAIL_INBOX_KEY` / `EMAIL_INBOX_CONFIG`（管理端同理 `EMAIL_ADMIN_*`）。
-- 「未读」由本机游标记录（服务端不分已读/未读）：`fetch-unread.mjs --peek` 只看不标记、`--all` 看最近全部、`--reset` 全部标为已读、`--json` 机器可读输出。
-- 发信：`send-email.mjs --attach ./file.pdf` 附上本地文件、`--forward-attachment <附件id>` 直接转发收到的附件（不用先下载）、`--text-file` 从文件读长正文。
+- 「未读」由本机游标记录（服务端不分已读/未读）：`cfmail unread --peek` 只看不标记、`--all` 看最近全部、`--reset` 全部标为已读。
+- 发信：`--attach ./file.pdf` 附上本地文件、`--forward-attachment <附件id>` 直接转发收到的附件（不用先下载）、`--text-file` 从文件读长正文。
+- 任何命令加 `--json` 得到机器可读输出，失败时也是 JSON 且退出码非 0。
 
 > 安全：`email-admin` 用的是最高权限的管理员密钥，**只配在管理员自己机器上，绝不要交给普通用户**；普通用户只该拿到 `email-inbox` 用的、绑定到自己邮箱的 Key。
 

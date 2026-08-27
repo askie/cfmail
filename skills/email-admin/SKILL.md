@@ -1,71 +1,84 @@
 ---
 name: email-admin
-description: Administer a cloudflare-email service with the admin key. Use when the user wants to open a mailbox for someone (issue an API key bound to an email address), list or revoke issued keys, or configure the new-email webhook. Requires the service's admin token (MCP_TOKEN). The companion email-inbox skill is what an ordinary user runs with the key issued here.
+description: Administer a cloudflare-email service with the admin key using the cfmail CLI. Use when the user wants to open a mailbox for someone (issue an API key bound to an email address), list or revoke issued keys, or configure the new-email webhook. Requires the service's admin token (MCP_TOKEN). The companion email-inbox skill is what an ordinary user runs with the key issued here.
 ---
 
 # email-admin
 
-用**管理员密钥**管理一台 **cloudflare-email** 服务:开通邮箱、签发/吊销访问密钥、配置新邮件通知。
+用**管理员密钥**管理一台 **cloudflare-email** 服务：开通邮箱、签发/吊销访问密钥、配置新邮件通知。
 
-管理员密钥就是服务部署时设置的 `MCP_TOKEN`。它能解锁普通邮箱密钥看不到的管理工具。普通用户拿到这里签发的 Key 后,用配套的 **email-inbox** 技能收信。
+管理员密钥就是服务部署时设置的 `MCP_TOKEN`。它能解锁普通邮箱密钥看不到的管理工具。普通用户拿到这里签发的 Key 后，用配套的 **email-inbox** 技能收发邮件。
 
-这份技能是**自包含**的:把整个 `email-admin/` 目录拷到任意 Agent 的技能目录即可使用,运行时只需 Node 18+(用内置 `fetch`,无需 `npm install`)。
+所有操作走 `cfmail admin` 子命令，从任何目录都能跑。
 
 ## 何时使用
 
-当用户(管理员)要求:给某人开一个邮箱 / 签发或重置访问密钥 / 看已经开通了哪些邮箱 / 吊销某人的密钥 / 设置新邮件通知地址时。
+当用户（管理员）要求：给某人开一个邮箱 / 签发或重置访问密钥 / 看已经开通了哪些邮箱 / 吊销某人的密钥 / 设置新邮件通知地址时。
 
 ## 两个要素
 
-1. **服务地址 base**:例如 `https://mail.example.com`(不带 `/mcp`)。
-2. **管理员密钥**:服务的 `MCP_TOKEN`。**这是最高权限凭证,绝不能交给普通用户、不要泄露。**
+1. **服务地址**：例如 `https://mail.example.com`（不带 `/mcp`）。
+2. **管理员密钥**：服务的 `MCP_TOKEN`。**这是最高权限凭证，绝不能交给普通用户、不要泄露。**
 
-## 运行位置(重要)
-
-下面所有命令都写成相对路径(`scripts/admin.mjs`),必须在**本技能目录**(这份 `SKILL.md` 所在的目录,如 `.claude/skills/email-admin/`)下执行才能找到脚本。执行前先 `cd` 到这个目录;如果不确定当前目录,用 `SKILL.md` 自己的路径推出技能目录再 `cd` 进去,或者直接把命令里的 `scripts/admin.mjs` 换成它的绝对路径。
-
-## 第一步:设置接入点(一次性)
+## 前置：安装 cfmail（一次性）
 
 ```bash
-node scripts/admin.mjs setup --base <服务地址> --key <管理员MCP_TOKEN>
+cfmail --version
 ```
 
-它会连服务校验这把钥匙**确实是管理员密钥**(能看到管理工具才算通过),通过后把配置写到 `~/.config/email-admin/config.json`(可用 `EMAIL_ADMIN_CONFIG` 改路径)。密钥只存在本机这个文件里。
+没有就装（需要 Node 20+），两种来源任选：
 
-## 日常操作
+```bash
+# 已经有仓库
+npm i -g /path/to/cloudflare-email/cli
 
-| 命令 | 作用 |
-|---|---|
-| `node scripts/admin.mjs create-key --email 某人@你的域名` | **开通邮箱**:为该地址签发一把 Key,**只显示一次**,立刻复制 |
-| `node scripts/admin.mjs list-keys` | 列出已开通的邮箱(只显示地址,Key 哈希存储不可回看) |
-| `node scripts/admin.mjs delete-key --email 某人@你的域名` | **吊销**该邮箱的 Key,立即失效 |
-| `node scripts/admin.mjs get-webhook` | 查看新邮件通知地址 |
-| `node scripts/admin.mjs set-webhook --url https://...` | 设置新邮件通知地址 |
-| `node scripts/admin.mjs set-webhook --url ""` | 清除新邮件通知 |
+# 没有仓库就先取一份
+git clone https://github.com/askie/cloudflare-email.git
+npm i -g ./cloudflare-email/cli
+```
 
-任何读命令加 `--json` 可得到机器可读输出。
+## 第一步：设置接入点（一次性）
 
-## 开通邮箱的完整流程
+```bash
+cfmail admin setup --base <服务地址> --key <管理员MCP_TOKEN>
+```
 
-1. 管理员执行:`node scripts/admin.mjs create-key --email alice@你的域名`
-2. 命令打印一把明文 Key(**只此一次**)。把它安全地交给 Alice。
-3. Alice 在自己的 Agent 里用 **email-inbox** 技能配置这把 Key,就能收发到 `alice@你的域名` 的邮件了:
-   ```bash
-   node setup.mjs --base <服务地址> --email alice@你的域名 --key <你的Key>
-   ```
+命令会连服务确认这把钥匙**确实是管理员密钥**（能看到管理工具才算通过），通过后写到 `~/.config/email-admin/config.json`（与普通用户的配置文件分开存放）。密钥只存在本机。
 
-> 一个邮箱地址同时只持有一把有效 Key:对同一地址再次 `create-key` 会签发新 Key 并使旧 Key 失效(等于重置密钥)。
+## 开通一个邮箱
+
+```bash
+cfmail admin create-key alice@你的域名
+```
+
+输出里的 **API Key 只显示这一次**，请立刻交给使用者。命令会顺带打印对方该跑的配置命令，直接转给他即可。
+
+> 地址不需要预先创建。服务对整个域名做 catch-all 收信，签发 Key 的动作就是把某个地址的收件权限绑给这把 Key。
+
+## 其余管理命令
+
+```bash
+cfmail admin list-keys                    # 看已发放的 Key（只列邮箱，不回显密钥）
+cfmail admin delete-key alice@你的域名     # 吊销，立即失效
+cfmail admin webhook                      # 看当前新邮件通知地址
+cfmail admin webhook --set https://你的接收地址
+cfmail admin webhook --clear              # 关闭通知
+```
+
+任何命令加 `--json` 可得到机器可读输出，失败时也是 JSON 且退出码非 0。
 
 ## 给 Agent 的执行提示
 
-1. 首次管理操作而本机还没有配置(`config.json` 不存在)时,先问齐 base 和管理员密钥,跑 `setup`。
-2. 用户说"给某某开个邮箱""签发密钥"→ `create-key`,然后把那把 Key 原样、完整地转达给用户,并提醒**只显示一次**。
-3. 绝不要把管理员密钥写进回复、日志或交给普通用户;它只用于本技能的本地配置。
-4. 报错"不是管理员密钥"说明填的是普通邮箱 Key,提示改用服务的 `MCP_TOKEN`;401 说明密钥错或服务地址不对。
+1. 首次管理操作而没有配置（报 `no service URL configured`）时，先问齐服务地址和管理员密钥，跑 `cfmail admin setup`。
+2. 用户说「给 X 开个邮箱」→ `cfmail admin create-key X`，把输出里的 Key 和配置命令一起转达，并提醒**只显示这一次**。
+3. 用户说「谁在用」→ `cfmail admin list-keys`；说「停掉某人」→ `cfmail admin delete-key <邮箱>`，执行前先复述要吊销谁并确认。
+4. **管理员密钥绝不能出现在给普通用户的输出里**。要给普通用户的只有 `create-key` 签发出来的那把。
+5. 报 `this key is not an admin token` 说明配的是普通邮箱 Key，不是 `MCP_TOKEN`。
 
 ## 故障排查
 
-- **不是管理员密钥**:填成了普通邮箱 Key。管理需要服务的 `MCP_TOKEN`。
-- **401**:密钥错误,或 base 地址不对。
-- **连不上**:确认 base 可达;不要用会被阻断的 `*.workers.dev`,用服务方自定义域名。
-- **Key 丢了**:无法找回(只存哈希),对该邮箱重新 `create-key` 签发一把新的即可。
+- **`cfmail: command not found`**：CLI 没装，重新跑上面「前置」里的安装命令。
+- **401**：管理员密钥不对 —— 确认它是部署时 `wrangler secret put MCP_TOKEN` 设的那个值。
+- **`this key is not an admin token`**：连上了，但这把 Key 只有普通邮箱权限。
+- **连不上 / 超时**：确认服务地址正确且可访问。
+- **签发后用户收不到信**：确认域名的 Email Routing catch-all 已指向这个 Worker，且地址域名和服务域名一致。
