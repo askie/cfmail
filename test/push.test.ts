@@ -1,0 +1,97 @@
+import { test, expect, vi, afterEach } from "vitest";
+import { pushNewEmail, isGrixKey, webhookTarget } from "../src/push";
+
+const KEY = "whk_71e14a27fa41d71e97f229bc53728dce";
+
+const ROW: any = {
+  id: "e1", msg_id: "<a@x.com>", refs: null,
+  from_addr: "boss@x.com", from_name: "Boss",
+  to_addr: "me@my.dev", cc_addr: null, subject: "发票 Q3",
+  date: 0, text_body: "请查收本季度发票。", html_key: null,
+  raw_key: "k", size: 1, has_attachments: 1, received_at: 0,
+};
+
+function envWith(configured: string | null) {
+  const first = vi.fn().mockResolvedValue(configured ? { value: configured } : null);
+  return { DB: { prepare: vi.fn().mockReturnValue({ bind: () => ({ first }) }) } } as any;
+}
+
+function mockFetch(ok = true) {
+  const f = vi.fn().mockResolvedValue(new Response("", { status: ok ? 200 : 500 }));
+  vi.stubGlobal("fetch", f);
+  return f;
+}
+
+afterEach(() => vi.unstubAllGlobals());
+
+test("a whk_ value is recognised and expanded to the Grix endpoint", () => {
+  expect(isGrixKey(KEY)).toBe(true);
+  expect(isGrixKey("https://example.com/hook")).toBe(false);
+  expect(isGrixKey("whk")).toBe(false);
+  expect(webhookTarget(KEY)).toBe(`https://grix.dhf.pub/v1/webhook/incoming/${KEY}`);
+  expect(webhookTarget("https://example.com/hook")).toBe("https://example.com/hook");
+});
+
+test("a Grix key posts a chat-shaped message to the Grix endpoint", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), ROW);
+
+  const [url, init] = f.mock.calls[0];
+  expect(url).toBe(`https://grix.dhf.pub/v1/webhook/incoming/${KEY}`);
+
+  const body = JSON.parse((init as any).body);
+  expect(body.msg_type).toBe("text");
+  expect(body.client_msg_id).toBe("e1");   // the email id: re-delivery cannot double-post
+  expect(body.content).toContain("发票 Q3");
+  expect(body.content).toContain("Boss <boss@x.com>");
+  expect(body.content).toContain("请查收本季度发票。");
+  expect(body.content).toContain("含附件");
+  // It is rendered as a message, so it must not read as a JSON dump.
+  expect(body.content).not.toMatch(/^\{/);
+});
+
+test("a plain URL still receives the original JSON event", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith("https://example.com/hook"), ROW);
+
+  const [url, init] = f.mock.calls[0];
+  expect(url).toBe("https://example.com/hook");
+
+  const body = JSON.parse((init as any).body);
+  expect(body).toMatchObject({ type: "email.received", id: "e1", subject: "发票 Q3" });
+  expect(body.msg_type).toBeUndefined();
+});
+
+test("an email with no subject or body still produces readable content", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(KEY), { ...ROW, subject: null, text_body: null, from_name: null, has_attachments: 0 });
+
+  const body = JSON.parse((f.mock.calls[0][1] as any).body);
+  expect(body.content).toContain("(无主题)");
+  expect(body.content).toContain("boss@x.com");
+  expect(body.content).not.toContain("含附件");
+});
+
+test("nothing is sent when no webhook is configured", async () => {
+  const f = mockFetch();
+  await pushNewEmail(envWith(null), ROW);
+  expect(f).not.toHaveBeenCalled();
+});
+
+test("a failing webhook is logged, not thrown, so ingestion is unaffected", async () => {
+  const err = vi.spyOn(console, "error").mockImplementation(() => {});
+  mockFetch(false);
+
+  await expect(pushNewEmail(envWith(KEY), ROW)).resolves.toBeUndefined();
+  expect(err).toHaveBeenCalled();
+  err.mockRestore();
+});
+
+test("a network error does not propagate either", async () => {
+  const err = vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNRESET")));
+
+  await expect(pushNewEmail(envWith(KEY), ROW)).resolves.toBeUndefined();
+  expect(err).toHaveBeenCalled();
+  err.mockRestore();
+});

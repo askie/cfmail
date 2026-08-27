@@ -60,10 +60,13 @@ cfmail admin create-key alice@你的域名
 ```bash
 cfmail admin list-keys                    # 看已发放的 Key（只列邮箱，不回显密钥）
 cfmail admin delete-key alice@你的域名     # 吊销，立即失效
-cfmail admin webhook                      # 看当前新邮件通知地址
-cfmail admin webhook --set https://你的接收地址
+cfmail admin webhook                      # 看当前通知设置
+cfmail admin webhook --set whk_xxx        # 新邮件推到 Grix 聊天里
+cfmail admin webhook --set https://...    # 或 POST 原始 JSON 给自己的程序
 cfmail admin webhook --clear              # 关闭通知
 ```
+
+新邮件通知支持两种目标，服务按值的形态自动判断：`whk_` 开头是 Grix key（推送成一条可读的聊天消息），`http(s)://` 开头是普通 webhook（发原始 JSON 事件）。推送失败只记日志，不影响收信。
 
 任何命令加 `--json` 可得到机器可读输出，失败时也是 JSON 且退出码非 0。
 
