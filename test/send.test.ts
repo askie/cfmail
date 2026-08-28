@@ -545,3 +545,58 @@ test("an empty stored file is forwardable, not reported as missing", async () =>
     filename: "empty.txt", content: "",
   });
 });
+
+// --- Open tracking. ------------------------------------------------------------
+
+function trackedEnv() {
+  const calls: { sql: string; args: any[] }[] = [];
+  const stmt = (sql: string) => ({
+    bind: (...args: any[]) => ({
+      run: async () => { calls.push({ sql, args }); return {}; },
+      first: async () => null,
+      all: async () => ({ results: [] }),
+    }),
+    run: async () => { calls.push({ sql, args: [] }); return {}; },
+  });
+  const env = {
+    RESEND_API_KEY: KEY, TRACK_BASE_URL: "https://m.example.com/",
+    DB: { prepare: stmt }, BUCKET: { get: vi.fn() },
+  } as any;
+  return { env, calls };
+}
+
+test("with TRACK_BASE_URL a text-only message gains an HTML twin carrying the pixel, and is recorded", async () => {
+  const f = mockFetch(200, { id: "re_1" });
+  const { env, calls } = trackedEnv();
+  const r = await sendEmail(env, "kf@grix.im", { to: ["a@x.com"], subject: "s", text: "a < b" });
+
+  expect(r.ok).toBe(true);
+  expect(r.tracked).toBe(true);
+  expect(r.sent_id).toMatch(/^[0-9a-f]{32}$/);
+  const body = JSON.parse((f.mock.calls[0][1] as any).body);
+  expect(body.text).toBe("a < b");
+  expect(body.html).toContain("a &lt; b");
+  expect(body.html).toContain(`https://m.example.com/o/${r.sent_id}.gif`);
+  const ins = calls.find((c) => c.sql.includes("INSERT INTO sent"))!;
+  expect(ins.args[0]).toBe(r.sent_id);
+  expect(ins.args[2]).toBe("re_1");
+});
+
+test("track:false sends the message untouched and records it as untracked", async () => {
+  const f = mockFetch(200, { id: "re_2" });
+  const { env, calls } = trackedEnv();
+  const r = await sendEmail(env, "kf@grix.im", { to: ["a@x.com"], subject: "s", text: "plain", track: false });
+
+  expect(r.tracked).toBe(false);
+  const body = JSON.parse((f.mock.calls[0][1] as any).body);
+  expect(body.html).toBeUndefined();
+  expect(calls.find((c) => c.sql.includes("INSERT INTO sent"))!.args[8]).toBe(0);
+});
+
+test("without TRACK_BASE_URL nothing is injected", async () => {
+  const f = mockFetch(200, { id: "re_3" });
+  const env = envWith({ resend: true });
+  await sendEmail(env, "kf@grix.im", { to: ["a@x.com"], subject: "s", text: "plain" });
+  const body = JSON.parse((f.mock.calls[0][1] as any).body);
+  expect(body.html).toBeUndefined();
+});

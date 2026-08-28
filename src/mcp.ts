@@ -14,6 +14,7 @@ import {
 } from "./store";
 import { getWebhook, setWebhook } from "./config";
 import { isGrixKey, webhookTarget } from "./push";
+import { listSent, sentStats } from "./track";
 import { sendEmail, resolveSender } from "./send";
 
 function json(data: unknown) {
@@ -119,6 +120,34 @@ export class EmailMCP extends McpAgent<Env> {
       async () => json(await stats(this.env, this.userEmail))
     );
 
+    // --- Outbound mail: what was sent and whether it was opened. A non-admin key
+    // sees only mail sent from its own address.
+    this.server.tool(
+      "list_sent",
+      "List sent mail, newest first, with open-tracking status (opened, open_count, first/last opened). Non-admin keys see only their own sent mail.",
+      {
+        since: z.string().optional().describe("ISO date/time lower bound"),
+        until: z.string().optional().describe("ISO date/time upper bound"),
+        from: z.string().email().optional().describe("Admin only: filter by sending address"),
+        limit: z.number().int().min(1).max(100).optional(),
+        offset: z.number().int().min(0).optional(),
+      },
+      async ({ since, until, from, limit, offset }) =>
+        json(await listSent(this.env, { since: toMs(since), until: toMs(until), from, limit, offset }, this.userEmail))
+    );
+
+    this.server.tool(
+      "sent_stats",
+      "Open-rate summary for sent mail: total, tracked (carried a pixel), opened, opens, open_rate (% of tracked). Non-admin keys are scoped to their own address.",
+      {
+        since: z.string().optional().describe("ISO date/time lower bound"),
+        until: z.string().optional().describe("ISO date/time upper bound"),
+        from: z.string().email().optional().describe("Admin only: filter by sending address"),
+      },
+      async ({ since, until, from }) =>
+        json(await sentStats(this.env, { since: toMs(since), until: toMs(until), from }, this.userEmail))
+    );
+
     // --- Write tool: send mail. A non-admin key always sends as the address it
     // is bound to; the admin identity has no bound address and must pass `from`.
     this.server.tool(
@@ -146,15 +175,16 @@ export class EmailMCP extends McpAgent<Env> {
           .optional()
           .describe("Attachment ids from get_email, to forward files from stored mail without re-uploading them"),
         from: z.string().email().optional().describe("Admin only: the sending address"),
+        track: z.boolean().optional().describe("Open tracking (pixel); default on when the service has TRACK_BASE_URL. false opts this message out"),
       },
-      async ({ to, cc, subject, text, html, in_reply_to, attachments, forward_attachment_ids, from }) => {
+      async ({ to, cc, subject, text, html, in_reply_to, attachments, forward_attachment_ids, from, track }) => {
         const sender = resolveSender(this.userEmail, from);
         if (!sender) return json({ ok: false, error: "from is required for the admin identity" });
         return json(
           await sendEmail(
             this.env,
             sender,
-            { to, cc, subject, text, html, in_reply_to, attachments, forward_attachment_ids },
+            { to, cc, subject, text, html, in_reply_to, attachments, forward_attachment_ids, track },
             this.userEmail
           )
         );

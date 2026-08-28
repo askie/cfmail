@@ -15,13 +15,14 @@ import * as search from "../src/commands/search.mjs";
 import * as attachment from "../src/commands/attachment.mjs";
 import * as stats from "../src/commands/stats.mjs";
 import * as send from "../src/commands/send.mjs";
+import * as sent from "../src/commands/sent.mjs";
 import * as sync from "../src/commands/sync.mjs";
 import * as prune from "../src/commands/prune.mjs";
 import * as config from "../src/commands/config.mjs";
 import * as admin from "../src/commands/admin.mjs";
 
 const COMMANDS = {
-  setup, unread, list, read, search, attachment, stats, send, sync, prune, admin,
+  setup, unread, list, read, search, attachment, stats, send, sent, sync, prune, admin,
   config,
   // Replying is sending with the id given positionally; one implementation.
   reply: { help: send.replyHelp, run: (argv) => send.run(argv, { replyPositional: true }) },
@@ -49,6 +50,8 @@ Sending
     --attach <path>               attach a local file
     --forward-attachment <id>     forward a received attachment (no download needed)
     --text-file <path>            read the body from a file (easier for long or Chinese text)
+    --no-track                    skip the open-tracking pixel for this message
+  cfmail sent [--since X] [--stats]                           sent mail with open status / open rate
 
 Configuration
   cfmail setup --base <url> --email <address> --key <key>  configure a mailbox and verify it right away

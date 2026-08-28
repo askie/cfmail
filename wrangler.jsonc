@@ -6,6 +6,9 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
 
+  // Public origin of this worker; enables the open-tracking pixel on outbound mail.
+  "vars": { "TRACK_BASE_URL": "https://mail.yourdomain.com" },
+
   // Durable Object backing the MCP session (required by McpAgent).
   "durable_objects": {
     "bindings": [{ "name": "MCP_OBJECT", "class_name": "EmailMCP" }]

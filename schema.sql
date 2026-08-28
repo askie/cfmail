@@ -56,3 +56,20 @@ CREATE TABLE IF NOT EXISTS api_keys (
   email       TEXT NOT NULL UNIQUE,
   created_at  INTEGER NOT NULL
 );
+
+-- Outbound mail + open tracking. Created on demand by the worker as well, so an
+-- existing deployment needs no manual migration.
+CREATE TABLE IF NOT EXISTS sent (
+  id              TEXT PRIMARY KEY,   -- tracking id, used in the pixel URL /o/<id>.gif
+  provider        TEXT,               -- resend | cloudflare
+  provider_id     TEXT,               -- provider's message id
+  from_addr       TEXT,
+  to_addr         TEXT,               -- comma-joined
+  cc_addr         TEXT,
+  subject         TEXT,
+  sent_at         INTEGER NOT NULL,   -- epoch ms
+  tracked         INTEGER NOT NULL DEFAULT 0,  -- 1 when the message carried a pixel
+  open_count      INTEGER NOT NULL DEFAULT 0,
+  first_opened_at INTEGER,
+  last_opened_at  INTEGER
+);

@@ -129,6 +129,12 @@ The free tier is 3,000 emails/month, 100/day — enough to get started; pay as y
 
 With neither configured, sending returns a "no send backend available" message that explains what to set up; receiving and querying are unaffected. For details on sending — attachment size limits, sender restrictions, how to debug a failure — see [ARCHITECTURE.md](./ARCHITECTURE.md) and [cli/README.md](./cli/README.md); when a send fails, the Agent reads the error code and tells you what went wrong, so you don't need to memorize these limits up front.
 
+### Optional: open tracking
+
+`wrangler.local.jsonc` carries `"vars": { "TRACK_BASE_URL": "https://mail.yourdomain.com" }` (your worker's public origin). With it set, every outgoing message gets a 1×1 image served from `/o/<id>.gif`; a text-only message gains an HTML twin so it can carry one. Loading the image bumps the counters on the `sent` table (created on demand). `cfmail sent` lists what was sent with open status and the open rate; `--no-track` on `send`/`reply` skips the pixel for one message. Remove the var to turn it off entirely.
+
+Read the numbers as a floor: clients that block remote images (QQ, 163, Outlook by default for unknown senders) never register, while privacy proxies such as Apple Mail fetch the image without a human looking.
+
 ### Ongoing maintenance after deploying
 
 ```bash

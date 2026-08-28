@@ -1,5 +1,6 @@
 import type { Env } from "./types";
 import { getEmail, getAttachment } from "./store";
+import { newTrackingId, pixelUrl, injectPixel, textToHtml, recordSent } from "./track";
 
 export interface SendAttachment {
   filename: string;
@@ -17,6 +18,8 @@ export interface SendRequest {
   attachments?: SendAttachment[];
   // Ids of stored attachments to forward, resolved against the caller's mailbox.
   forward_attachment_ids?: string[];
+  // Open tracking is on whenever TRACK_BASE_URL is configured; false opts one message out.
+  track?: boolean;
 }
 
 export type Provider = "resend" | "cloudflare";
@@ -25,6 +28,9 @@ export interface SendOutcome {
   ok: boolean;
   provider?: Provider;
   message_id?: string;
+  // Row id in `sent`; the tracking id when the message carried a pixel.
+  sent_id?: string;
+  tracked?: boolean;
   to?: string[];
   subject?: string;
   error?: string;
@@ -345,7 +351,29 @@ export async function sendEmail(
   const built = await buildEnvelope(env, req, provider, userEmail);
   if ("error" in built) return { ok: false, provider, error: built.error };
 
-  return apiKey
-    ? viaResend(apiKey, from, built.envelope, req)
-    : viaCloudflare(env.EMAIL!, from, built.envelope, req);
+  // The pixel goes into the HTML part; a text-only message gets an HTML twin so
+  // it can carry one too. The plain text still travels as the text/plain part.
+  const id = newTrackingId();
+  const base = env.TRACK_BASE_URL?.trim();
+  const tracked = !!base && req.track !== false;
+  const outbound: SendRequest = tracked
+    ? { ...req, html: injectPixel(req.html ?? textToHtml(req.text), pixelUrl(base!, id)) }
+    : req;
+
+  const outcome = apiKey
+    ? await viaResend(apiKey, from, built.envelope, outbound)
+    : await viaCloudflare(env.EMAIL!, from, built.envelope, outbound);
+  if (!outcome.ok) return outcome;
+
+  // Bookkeeping must not turn a delivered message into a reported failure.
+  try {
+    await recordSent(env, {
+      id, provider, provider_id: outcome.message_id ?? null, from_addr: from,
+      to_addr: built.envelope.to, cc_addr: built.envelope.cc,
+      subject: built.envelope.subject ?? null, tracked,
+    });
+  } catch (e) {
+    console.error("recordSent failed:", e);
+  }
+  return { ...outcome, sent_id: id, tracked };
 }

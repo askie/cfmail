@@ -9,6 +9,7 @@ const SPEC = {
   "--to": "list", "--cc": "list", "--subject": "string",
   "--text": "string", "--text-file": "string",
   "--reply": "string", "--attach": "list", "--forward-attachment": "list",
+  "--no-track": "bool",
 };
 
 export const replyHelp = `Usage: cfmail reply <email-id> --text <body> [options]
@@ -30,6 +31,7 @@ Options:
   --subject <subject> Override the auto-generated "Re: " subject. Required if
                       the original had no subject
   --attach <path>     Attach a local file, repeatable
+  --no-track          Skip the open-tracking pixel for this reply
   --forward-attachment <id>
                       Forward an already-stored attachment, repeatable
   --json              Print JSON
@@ -67,6 +69,11 @@ Attachments (both repeatable):
 Replying:
   --reply <email-id>  Reply within the original thread. Equivalent to
                       cfmail reply <email-id>
+
+Tracking:
+  --no-track          Do not embed the open-tracking pixel in this message
+                      (tracking is on by default when the service enables it;
+                      see cfmail sent)
 
 Other:
   --json              Print JSON; failures are JSON too, with a non-zero exit code
@@ -143,6 +150,7 @@ export async function run(argv, { replyPositional = false } = {}) {
   if (reply) args.in_reply_to = reply;
   if (opts.attach?.length) args.attachments = opts.attach.map(readAttachment);
   if (opts.forwardAttachment?.length) args.forward_attachment_ids = opts.forwardAttachment;
+  if (opts.noTrack) args.track = false;
 
   const mcp = await new Mcp(cfg.base, cfg.key).connect();
   const res = await mcp.call("send_email", args);
