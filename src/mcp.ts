@@ -1,4 +1,3 @@
-import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Env } from "./types";
@@ -39,20 +38,21 @@ function toMs(s?: string): number | undefined {
   return Number.isNaN(t) ? undefined : t;
 }
 
-// Remote MCP server (Streamable HTTP). Exposes read tools over the stored mailbox
-// plus webhook configuration. Backed by a Durable Object per session.
-// Identity injected by the worker entrypoint via ctx.props. The agents runtime
-// persists props with the session, so it's available in init() on first start
-// and on every later wake (including SSE messages after hibernation).
-interface Identity {
+// Remote MCP server (stateless Streamable HTTP). Exposes read tools over the
+// stored mailbox plus webhook configuration. Every tool only touches D1/R2, so
+// no session state is kept: the worker builds a fresh instance per request and
+// the identity resolved by the entrypoint is passed straight to the constructor.
+export interface Identity {
   isAdmin?: boolean;
   email?: string;
 }
 
-export class EmailMCP extends McpAgent<Env> {
+export class EmailMCP {
   server = new McpServer({ name: "cloudflare-email", version: "0.1.0" });
   userEmail?: string;
   isAdmin = false;
+
+  constructor(public env: Env, public props: Identity = {}) {}
 
   async init() {
     const id = (this.props ?? {}) as Identity;

@@ -1,8 +1,4 @@
-import { test, expect, vi } from "vitest";
-
-// The agents SDK pulls in `cloudflare:*` modules that Node's loader cannot
-// resolve. Only the base class matters here, so stub it out.
-vi.mock("agents/mcp", () => ({ McpAgent: class {} }));
+import { test, expect } from "vitest";
 
 const { EmailMCP } = await import("../src/mcp");
 

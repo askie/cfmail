@@ -9,12 +9,10 @@
   // Public origin of this worker; enables the open-tracking pixel on outbound mail.
   "vars": { "TRACK_BASE_URL": "https://mail.yourdomain.com" },
 
-  // Durable Object backing the MCP session (required by McpAgent).
-  "durable_objects": {
-    "bindings": [{ "name": "MCP_OBJECT", "class_name": "EmailMCP" }]
-  },
+  // v1 created the EmailMCP Durable Object (old McpAgent sessions); v2 removes it.
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["EmailMCP"] }
+    { "tag": "v1", "new_sqlite_classes": ["EmailMCP"] },
+    { "tag": "v2", "deleted_classes": ["EmailMCP"] }
   ],
 
   // D1: queryable metadata + plain-text body + FTS index + config.

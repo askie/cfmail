@@ -1,11 +1,10 @@
 import { EmailMCP } from "./mcp";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { ingest } from "./email";
 import { authenticate } from "./auth";
 import { handleOpen } from "./track";
 import type { Env } from "./types";
 
-// Durable Object class backing the MCP session (referenced by wrangler.jsonc).
-export { EmailMCP };
 
 function unauthorized(): Response {
   return new Response("Unauthorized", {
@@ -32,21 +31,20 @@ export default {
     const pixel = handleOpen(request, env, ctx);
     if (pixel) return pixel;
 
-    if (url.pathname === "/mcp" || url.pathname === "/sse" || url.pathname === "/sse/message") {
+    if (url.pathname === "/mcp") {
       const auth = await authenticate(request, env);
       if (!auth.authed) return unauthorized();
 
-      // Pass the resolved identity to the MCP agent via ctx.props. The runtime
-      // persists it with the session, so init() can register tools per identity.
-      (ctx as ExecutionContext & { props?: unknown }).props = {
-        isAdmin: auth.isAdmin,
-        email: auth.email,
-      };
-
-      if (url.pathname === "/mcp") {
-        return EmailMCP.serve("/mcp").fetch(request, env, ctx);
-      }
-      return EmailMCP.serveSSE("/sse").fetch(request, env, ctx);
+      // Stateless: one server + transport per request, nothing persisted between
+      // calls (no Durable Object, so no DO row-write quota involved).
+      const mcp = new EmailMCP(env, { isAdmin: auth.isAdmin, email: auth.email });
+      await mcp.init();
+      const transport = new WebStandardStreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+        enableJsonResponse: true,
+      });
+      await mcp.server.connect(transport);
+      return transport.handleRequest(request);
     }
 
     return new Response("Not found", { status: 404 });
