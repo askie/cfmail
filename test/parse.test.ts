@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { parseRaw } from "../src/parse";
+import { parseRaw, inferContentType } from "../src/parse";
 
 const RAW = [
   "From: Alice <alice@example.com>",
@@ -66,4 +66,23 @@ test("parseRaw extracts headers, Chinese body, and attachment", async () => {
   expect(parsed.attachments).toHaveLength(1);
   expect(parsed.attachments[0].filename).toBe("note.txt");
   expect(parsed.attachments[0].content.byteLength).toBeGreaterThan(0);
+});
+
+test("an octet-stream attachment gets its type from the filename extension", async () => {
+  const raw = RAW.replace(
+    'Content-Type: text/plain; name="note.txt"\r\nContent-Disposition: attachment; filename="note.txt"',
+    'Content-Type: application/octet-stream; name="shot.PNG"\r\nContent-Disposition: attachment; filename="shot.PNG"'
+  );
+  const parsed = await parseRaw(raw);
+  expect(parsed.attachments[0].filename).toBe("shot.PNG");
+  expect(parsed.attachments[0].content_type).toBe("image/png");
+});
+
+test("inferContentType only overrides a missing or generic declared type", () => {
+  expect(inferContentType("a.xlsx", "application/octet-stream")).toBe(
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  expect(inferContentType("a.jpg", null)).toBe("image/jpeg");
+  expect(inferContentType("a.jpg", "text/csv")).toBe("text/csv");   // declared wins when specific
+  expect(inferContentType("blob.unknownext", "application/octet-stream")).toBe("application/octet-stream");
+  expect(inferContentType(null, null)).toBeNull();
 });
