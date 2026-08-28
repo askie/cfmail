@@ -23,6 +23,22 @@ function fold(text, len) {
   return chars.length > len ? chars.slice(0, len).join("") + "…" : t;
 }
 
+// The body keeps its line structure — a folded-to-one-line email is unreadable
+// once it has a greeting, a list and a signature. Only runs of blank lines and
+// trailing whitespace are squeezed; the cap counts characters, not lines.
+function foldBody(text, len) {
+  if (!text) return null;
+  const t = String(text)
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((l) => l.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const chars = [...t];
+  return chars.length > len ? chars.slice(0, len).join("").trimEnd() + "…" : t;
+}
+
 function humanSize(n) {
   if (!Number.isFinite(n)) return "";
   return Math.round(n / 1024) >= 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB`
@@ -50,7 +66,7 @@ export function buildMessage({ meta, folder, files }) {
     `主题: ${fold(meta.subject, 120) || "(无主题)"}`,
   ];
 
-  const body = fold(meta.text, 500);
+  const body = foldBody(meta.text, 500);
   if (body) lines.push("", body);
 
   if (files.length) {

@@ -74,3 +74,13 @@ test("a long body and subject are capped", () => {
 test("msg_type is text, which is what the Grix endpoint expects", () => {
   expect(build().msg_type).toBe("text");
 });
+
+test("the body keeps its line breaks, squeezing only blank-line runs and trailing spaces", () => {
+  const { content } = buildMessage({
+    meta: { from: "a@x.com", subject: "s", text: "你好，  \r\n\r\n\r\n\r\n1. 第一项\t\t说明\r\n2. 第二项\r\n\r\n谢谢\r\n\r\n" },
+    folder: "/tmp/m", files: [],
+  });
+  expect(content).toContain("你好，\n\n1. 第一项 说明\n2. 第二项\n\n谢谢");
+  expect(content).not.toContain("\n\n\n");
+  expect(content).not.toContain("\r");
+});
