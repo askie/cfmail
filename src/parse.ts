@@ -16,6 +16,30 @@ function toEpochMs(date: string | undefined): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
+// Some senders (QQ Mail among them) label every attachment
+// application/octet-stream, which stops clients from previewing images. When
+// the declared type says nothing, the filename extension is the next best hint.
+const EXT_MIME: Record<string, string> = {
+  txt: "text/plain", md: "text/markdown", csv: "text/csv", json: "application/json",
+  xml: "application/xml", html: "text/html", pdf: "application/pdf", zip: "application/zip",
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+  webp: "image/webp", svg: "image/svg+xml", heic: "image/heic",
+  mp4: "video/mp4", mp3: "audio/mpeg",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+};
+
+export function inferContentType(filename: string | null | undefined, declared: string | null | undefined): string | null {
+  const d = declared?.trim().toLowerCase() || null;
+  if (d && d !== "application/octet-stream") return d;
+  const ext = filename?.match(/\.([a-z0-9]+)$/i)?.[1].toLowerCase();
+  return (ext && EXT_MIME[ext]) || d;
+}
+
 // Pure parser: raw .eml bytes -> normalized ParsedEmail. Runs in Workers and Node.
 export async function parseRaw(raw: ArrayBuffer | Uint8Array | string): Promise<ParsedEmail> {
   const email = await PostalMime.parse(raw);
@@ -36,7 +60,7 @@ export async function parseRaw(raw: ArrayBuffer | Uint8Array | string): Promise<
     }
     return {
       filename: a.filename ?? null,
-      content_type: a.mimeType ?? null,
+      content_type: inferContentType(a.filename, a.mimeType),
       content,
     };
   });
