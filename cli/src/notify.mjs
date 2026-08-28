@@ -25,7 +25,8 @@ function fold(text, len) {
 
 // The body keeps its line structure — a folded-to-one-line email is unreadable
 // once it has a greeting, a list and a signature. Only runs of blank lines and
-// trailing whitespace are squeezed; the cap counts characters, not lines.
+// trailing whitespace and runs of spaces inside a line are squeezed; the cap
+// counts characters, not lines.
 function foldBody(text, len) {
   if (!text) return null;
   const t = String(text)
