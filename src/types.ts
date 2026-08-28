@@ -8,6 +8,9 @@ export interface Env {
   // Fallback sending backend; present only when the send_email binding is
   // configured in wrangler. Used when no Resend key is set.
   EMAIL?: SendEmail;
+  // Public origin of this worker (e.g. https://mail.example.com). When set, every
+  // outbound message carries an open-tracking pixel served from here.
+  TRACK_BASE_URL?: string;
 }
 
 // One stored attachment (R2 + a row in `attachments`).

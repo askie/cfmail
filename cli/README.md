@@ -294,6 +294,18 @@ cfmail send --to a@x.com --subject "长文" --text-file ./body.txt
 
 `--forward-attachment` 转发已存附件时字节在服务端内部流转，不经过本机。
 
+## 打开率
+
+```bash
+cfmail sent                          # 已发邮件，逐封显示是否打开、打开几次
+cfmail sent --since 2026-08-01 --stats   # 只看汇总：已发 / 带统计 / 被打开 / 打开率
+cfmail send ... --no-track           # 这一封不埋统计图
+```
+
+服务端配置了 `TRACK_BASE_URL` 时，每封发出的邮件会自动嵌入一张 1×1 的图片（纯文本邮件会自动生成一份 HTML 副本来承载，纯文本部分照旧发送）；收件人打开邮件加载图片，服务端就记一次。
+
+数字只能当下限看：QQ/163/Outlook 对陌生发件人默认不加载远程图片，打开了也记不到；Apple 邮件的隐私代理会替用户预取图片，没看也会记上。看趋势，别看绝对值。
+
 ## 管理
 
 ```bash

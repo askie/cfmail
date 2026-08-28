@@ -54,6 +54,8 @@ test("a mailbox key sees the read and send tools but no admin tool", async () =>
 
   expect(names).toContain("list_emails");
   expect(names).toContain("send_email");
+  expect(names).toContain("list_sent");
+  expect(names).toContain("sent_stats");
   for (const t of ADMIN_ONLY) expect(names).not.toContain(t);
 });
 

@@ -163,6 +163,16 @@ cfmail reply <邮件id> --text "转给你" --forward-attachment <附件id>
 - **回信一定用 `cfmail reply <邮件id>`**：它会带上 `In-Reply-To`/`References`，收件人那边能看到是同一串对话，多轮往返也不断线。手工拼 `--to` + `--subject "Re: ..."` 做不到。
 - **转发收到的附件用 `--forward-attachment`**：附件 id 来自 `cfmail read <邮件id>`。字节在服务端内部流转，几十 MB 的文件也不用下载到本地再传上去。
 
+## 打开率
+
+```bash
+cfmail sent                  # 已发邮件逐封的打开状态
+cfmail sent --stats          # 汇总：已发 / 带统计 / 被打开 / 打开率
+cfmail send ... --no-track   # 这封不埋统计图
+```
+
+服务端开了统计时发出的邮件自动带 1×1 图片。用户问「谁打开了我的邮件 / 打开率多少」→ `cfmail sent`。回答时说明这是下限：QQ/163 等默认不加载远程图片会漏计，Apple 邮件会预取图片会虚高。
+
 ## 机器可读输出
 
 任何命令加 `--json` 就输出 JSON，失败时也是 JSON（且退出码非 0），便于脚本处理：

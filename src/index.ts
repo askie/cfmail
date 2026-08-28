@@ -1,6 +1,7 @@
 import { EmailMCP } from "./mcp";
 import { ingest } from "./email";
 import { authenticate } from "./auth";
+import { handleOpen } from "./track";
 import type { Env } from "./types";
 
 // Durable Object class backing the MCP session (referenced by wrangler.jsonc).
@@ -26,6 +27,10 @@ export default {
     if (url.pathname === "/health") {
       return new Response("ok", { headers: { "content-type": "text/plain" } });
     }
+
+    // Open-tracking pixel: public by design (mail clients fetch it unauthenticated).
+    const pixel = handleOpen(request, env, ctx);
+    if (pixel) return pixel;
 
     if (url.pathname === "/mcp" || url.pathname === "/sse" || url.pathname === "/sse/message") {
       const auth = await authenticate(request, env);
